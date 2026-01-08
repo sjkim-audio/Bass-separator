@@ -6,8 +6,8 @@ All audio files are stored on external storage (e.g., Google Drive) and can be l
 모든 오디오 파일은 외부 저장소(Google Drive 등)에 저장되어 있으며, 링크를 통해 청취 가능합니다
 
 ## Summary (요약표)
-| Exp ID | 날짜 | 곡명(소스 유형) | 사용 모델 | 비고 |
-| :---: | :---: | :--- | :---: | :---: | :---: | :--- |
+| Exp ID | 날짜 | 곡명(소스 유형) | 사용 모델  | 비고 |
+| :---: | :---: | :--- | :---: | :--- |
 | **001** | 25.01.09 | 기타 베이스 분리 예제 1 (Raw) | htdemucs_6s | 베이스 성공적, 기타 잡음 |
 
 ---
