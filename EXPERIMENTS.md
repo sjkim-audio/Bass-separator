@@ -13,8 +13,10 @@ All audio files are stored on external storage (e.g., Google Drive) and can be l
 | **003** | 25.01.12 | NMF | 기타 베이스 분리 예제 2 (Raw) | 분리 실패 |
 ---
 
-## Details
-
+<details>
+<summary><b>실험 상세 기록</b> - <i>Click to expand</i></summary>
+<br>
+   
 ###  Exp 001: 기타 베이스 분리 예제 1 (Raw Recording)
 * **개요:** 기타와 베이스만 있는 트랙에서 둘을 온전히 분리할 수 있는지 검증
 * **사용 음원:** 오디오 인터페이스 직렬로 직접 녹음한 일렉트릭 기타 2트랙, 일렉트릭 베이스 1트랙의 데모 (3분 30초 가량) 
@@ -78,3 +80,4 @@ All audio files are stored on external storage (e.g., Google Drive) and can be l
 * **향후 계획**
     * 딥러닝(Deep Learning) 기반의 비선형 모델(U-Net, Demucs 등)을 도입하여 Spectrogram의 패턴을 학습시키는 방식으로 전환 예정.
 
+</details>
