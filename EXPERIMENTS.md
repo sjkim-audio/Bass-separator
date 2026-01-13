@@ -11,6 +11,7 @@ All audio files are stored on external storage (e.g., Google Drive) and can be l
 | **001** | 25.01.09 | htdemucs_6s | 기타 베이스 분리 예제 1 (Raw) | 베이스 성공적, 기타 잡음 |
 | **002** | 25.01.10 | Butterworth | 기타 베이스 분리 예제 2 (Raw) | 기타 성공적, 베이스 라인 식별 불가 |
 | **003** | 25.01.12 | NMF | 기타 베이스 분리 예제 2 (Raw) | 분리 실패 |
+| **004** | 25.01.14 | OpenUnmix | 기타 베이스 분리 예제 2 (Raw) | 퍼스트 기타 성공적, 베이스 노트 식별 용이, 세컨 기타 식별 불가 |
 ---
 
 <details>
@@ -53,7 +54,6 @@ All audio files are stored on external storage (e.g., Google Drive) and can be l
 ---
 
 ## Exp 003: NMF (Non-negative Matrix Factorization)
-
 * **개요:** 단순 주파수 필터링(LPF/HPF)의 한계(주파수 대역이 겹치는 구간 분리 불가)를 극복하기 위해, 통계적 패턴 기반의 분리 알고리즘인 **NMF(비음수 행렬 분해)**를 도입하여 베이스와 기타 트랙 분리를 시도함.
 * **사용 음원:** 기타 베이스 분리 예제 2 (Exp 002과 같은 소스)
 * **사용 기술:**
@@ -79,5 +79,35 @@ All audio files are stored on external storage (e.g., Google Drive) and can be l
        - 곡의 중반부(약 18초), 리드 기타가 솔로를 연주하며 한 옥타브 위로 올라가는 시점부터 분리 정도가 심화됨. 악기의 분리가 아닌 트랙 자체의 분리
 * **향후 계획**
     * 딥러닝(Deep Learning) 기반의 비선형 모델(U-Net, Demucs 등)을 도입하여 Spectrogram의 패턴을 학습시키는 방식으로 전환 예정.
+
+---
+
+## Exp 004: OpenUnmix (UMX)
+* **개요:**
+    * 이전 실험(Exp 003, NMF)에서 확인된 선형 모델의 한계(블리딩, 저음 분리 실패)를 극복하기 위해, 시계열 데이터 학습에 특화된 딥러닝 모델인 **OpenUnmix(UMX)** 를 도입함.
+    * 수학적 패턴 매칭이 아닌, Bi-LSTM(양방향 장단기 메모리) 신경망을 통해 시간의 흐름과 문맥을 파악하여 더 정교한 마스킹을 수행하고자 함.
+* **사용 음원:** 기타 베이스 분리 예제 2 (Exp 002, 003과 동일 소스)
+* **사용 기술:**
+    * OpenUnmix (UMX): PyTorch 기반의 음악 소스 분리(MSS) 라이브러리.
+    * Bi-LSTM (Bidirectional LSTM):과거와 미래의 정보를 모두 참조하여 현재 시점의 소리를 추정하는 순환 신경망 구조.
+    * `torchaudio`, `Librosa`: 오디오 텐서 변환 및 로딩.
+* **실험 과정:**
+    * **오디오 백엔드 호환성 문제 해결**
+        - 문제: Colab 환경에서 `torchaudio` 로드 시 `TorchCodec` 누락 오류 발생. 의존성 충돌 발생으로 추정
+        - 해결: 안정성이 검증된 Librosa 라이브러리로 오디오를 로드(`numpy array`)한 후 `torch.tensor`로 우회 변환
+    * **텐서 차원(Tensor Dimension) 전처리**
+        - 문제: UMX 모델은 `[Batch, Channels, Time]` 형태의 3차원 스테레오 입력을 요구하나, 입력 데이터가 모노(1ch)이거나 배치 차원이 없어 오류 발생.
+        - 해결: `unsqueeze(0)`로 배치 차원을 추가하고, 모노일 경우 `repeat(2, 1)`을 통해 강제로 스테레오(2ch)로 확장하는 전처리 파이프라인 구축.
+    * **Model Confusion (모델 편향) 발견 및 수정**
+        - 문제: 분리된 결과 청취 시, 베이스 트랙에서 기타 소리가 나고 기타(Other) 트랙에서 베이스 소리가 나는 현상 발견.
+        - 해결: 청감 테스트를 통해 모델의 오분류를 확인하고, 출력 변수 할당 시 `Bass`와 `Other` 채널을 수동으로 교체(Swap)하여 바로잡음.
+* **결과 분석:**
+    * 분리 성능의 향상:
+        - NMF에서 발생했던 '물속에 있는 듯한(Webby)' 위상 왜곡과 블리딩 현상이 대부분 사라짐.
+        - 베이스의 타격감(Transient)이 보존되며 단단한 소리로 추출됨.
+    * AI 모델의 편향(Bias) 확인 (중요 Insight):
+        - 기술적 분리 성능은 우수하나 장르적 특성 혹은 트랙에 따른 **Human-in-the-loop(사람의 검증)** 과정이 필수적임을 확인.
+* **향후 계획:**
+    * Transformer 기반 SOTA 모델 비교: LSTM 기반인 OpenUnmix를 넘어, 최신 SOTA(State-of-the-art) 모델인 **Demucs (Hybrid Transformer)**를 적용해보고 성능 차이 분석.
 
 </details>
