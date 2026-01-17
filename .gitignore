@@ -205,3 +205,25 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+
+# 데이터셋 폴더 무시
+dataset/
+data/
+
+# 구글 드라이브 마운트 흔적 무시
+drive/
+
+# 대용량 오디오 파일 무시
+.wav
+.mp3
+.flac
+.zip
+.tar.gz
+
+# 학습된 모델 가중치 파일 무시
+.pth
+.pt
+.h5
+checkpoints/
+runs/
