@@ -66,7 +66,11 @@ class AudioAugmentor:
         """
         파형을 강제로 잘라내어(Clipping) 드라이브 톤을 흉내냄
         threshold가 낮을수록 소리가 더 많이 찌그러짐 (0.0 ~ 1.0)
+        0.5 밑으로는 소리가 과하게 망가질 수 있어 제한
         """
+        if threshold < 0.5 :
+            threshold = 0.5
+        
         # 1. Gain을 키워서 파형을 천장에 닿게 함
         y_boosted = y * (1.0 / threshold)
         # 2. 천장을 넘는 부분을 잘라냄 (Hard Clip)
