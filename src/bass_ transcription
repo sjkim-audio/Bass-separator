@@ -1,0 +1,18 @@
+# src/bass_transcription.py
+import librosa
+import numpy as np
+
+def detect_pitch(y, sr=44100, fmin=40, fmax=400):
+    """
+    베이스 대역(40Hz ~ 400Hz)에 집중해서 피치를 추출하는 함수
+    """
+    # pYIN 알고리즘: 확률적 피치 추정 (노이즈에 강함)
+    f0, voiced_flag, voiced_probs = librosa.pyin(
+        y, 
+        fmin=librosa.note_to_hz('E1'), # 베이스 최저음 (약 41Hz)
+        fmax=librosa.note_to_hz('G4'), # 베이스 고음 (약 392Hz)
+        sr=sr
+    )
+    # f0(주파수)를 MIDI 노트 번호로 변환
+    midi_notes = librosa.hz_to_midi(f0)
+    return f0, midi_notes
