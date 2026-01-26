@@ -27,8 +27,15 @@
 - [ ] **Experiment Tracking:** WandB 등을 도입하여 학습률(Learning Rate) 및 Loss 변화 추적
 - [ ] **Model Selection:** Validation Set 기준 SDR/SIR 점수가 가장 높은 최적의 모델 선정 (Checkpoint 저장)
 
-### Phase 5. 배포 및 문서화 (Deployment & Documentation)
+### Phase 5. 기능 확장: 자동 채보 및 타브 생성 (Audio-to-Tab) [New✨]
+> **Goal:** 분리된 고품질 베이스 오디오를 분석하여 연주 가능한 타브 악보로 변환한다.
+- [ ] **Pitch Tracking:** `pYIN` 또는 `CREPE` 알고리즘을 활용해 베이스의 기본 주파수(f0) 정밀 추출 (`src/transcription.py`)
+- [ ] **Note Segmentation:** 연속된 주파수 신호를 개별 음표(Note Onset/Offset)로 분리하는 알고리즘 구현
+- [ ] **Fretboard Mapping Logic:** 추출된 음을 '가장 연주하기 편한' 줄과 프렛 위치로 변환하는 알고리즘 개발 (Cost Function 활용)
+- [ ] **Tab Output:** 분석 결과를 텍스트(ASCII) 또는 MIDI 포맷으로 출력
+
+### Phase 6. 배포 및 문서화 (Deployment & Documentation)
 > **Goal:** 연구 결과를 실제 프로덕트로 만들고 기술적 가치를 증명한다.
-- [ ] **Web Demo 배포:** Hugging Face Spaces & Gradio를 활용한 웹 기반 분리 도구 제작
+- [ ] **Web Demo 배포:** Hugging Face Spaces & Gradio를 활용한 웹 기반 도구 제작 (MP3 업로드 -> Bass 분리 & 악보 다운로드)
 - [ ] **Tech Blog 작성:** 문제 정의부터 해결 과정(SDR 상승 수치 포함)을 담은 기술 포스팅
 - [ ] **Final Project Report:** 전체 파이프라인과 성과를 요약한 최종 포트폴리오 문서화
