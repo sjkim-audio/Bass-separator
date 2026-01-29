@@ -2,6 +2,11 @@
 
 **Bass Separator**는 DSP, ML, DL 기술을 활용해 믹스된 오디오 트랙에서 **베이스(Bass)** 신호를 정밀하게 식별하고 분리하는 프로젝트입니다.
 
+## 사용 기술 (Tech Stack)
+* **Language:** Python 3.x
+* **Main Libraries:** `Librosa`, `NumPy`, `SciPy`, `Matplotlib`
+* **Environment:** Google Colab / Jupyter Notebook
+
 ## 프로젝트 목표 (Project Goal)
 이미 악기 소스들이 하나로 합쳐져 있는, 발매된 음원 및 녹음 파일 등에서 베이스 기타 소스를 정확하게 분리해내어 별개의 트랙으로 받을 수 있도록 합니다.
 
