@@ -27,6 +27,6 @@
 
 [**`분리 알고리즘 선택 DevLog`**](./docs/Argorithm_selection_devlog.md)
 
-[**악보 생성 DevLog`**](./docs/Transcription_devlog.md)
+[**`악보 생성 DevLog`**](./docs/Transcription_devlog.md)
 
 
