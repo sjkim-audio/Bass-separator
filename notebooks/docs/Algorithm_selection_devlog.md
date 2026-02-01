@@ -1,4 +1,4 @@
-# Experiment Log (실험 일지)
+# Separate Algorithm Experiment Log (실험 일지)
 
 This is a record of an experiment to improve the separation of electric guitar and bass. 
 All audio files are stored on external storage (e.g., Google Drive) and can be listened to via the link.
