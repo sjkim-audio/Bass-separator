@@ -13,6 +13,7 @@ All audio files are stored on external storage (e.g., Google Drive) and can be l
 | **003** | 25.01.12 | NMF | 기타 베이스 분리 예제 2 (Raw) | 분리 실패 |
 | **004** | 25.01.14 | OpenUnmix | 기타 베이스 분리 예제 2 (Raw) | 퍼스트 기타 성공적, 베이스 노트 식별 용이, 세컨 기타 식별 불가 |
 | **005** | 25.01.16 | Demucs | 기타 베이스 분리 예제 2 (Raw) | 분리 성공, 잡음 및 블리딩 거의 없음 |
+| **006** | 26.02.02 | Demucs (4-stems) | 기타 베이스 분리 예제 2 (Raw) | 2-stem 대비 분리도 상승, Backing Track 제작 |
 
 ---
 
@@ -150,4 +151,23 @@ All audio files are stored on external storage (e.g., Google Drive) and can be l
         - 분리된 결과물의 레벨(gain)이 작아짐
         - 베이스 노트가 더 선명해짐, 로우컷을 한듯이 저음역대의 벙벙되는 사운드가 정돈됨
         - 트랙 자체의 볼륨과 음역대는 깎였지만 카피 등의 정확한 음정 및 라인 인식이 필요한 작업에서는 더 용이한 결과물이 나옴
+      
+---
+
+## Exp 006: 4-Stem vs 2-Stem Separation Strategy (Backing Track Optimization)
+* **개요:**
+    * 프로젝트의 최종 목표(베이스 카피 + 고품질 MR 제작)를 달성하기 위해, 속도가 빠른 **2-Stem 분리(Bass vs Rest)**와 품질 중심의 **4-Stem 분리(Bass, Drums, Vocals, Other)** 전략을 비교 분석함.
+* **가설:**
+    * 2-Stem 분리(`--two-stems=bass`)가 연산 속도가 빠르므로 효율적일 것으로 예상했으나, `Rest`(나머지) 트랙의 품질 저하가 우려됨.
+* **비교 분석 결과:**
+    1.  **베이스 트랙 분리 성능**
+        * 2-Stem 모델에 비해 기본 모델에서 베이스의 분리도가 더 좋다고 판단됨. 흐려지는 노트 및 불필요한 부밍 현상이 더 적게 나타남.
+    3.  **Artifacts (위상 왜곡 및 잡음)**
+        * **2-Stem 모델:** `Rest = Mix - Bass` 방식의 연산 과정에서 위상 캔슬(Phase Cancellation)이나 "물속에서 듣는 듯한" 왜곡이 MR 트랙에 발생.
+        * **4-Stem 모델:** 각 악기가 제자리를 찾아 분리되므로, 이를 다시 합쳤을 때 훨씬 선명하고 자연스러운 사운드를 유지함.
+* **결론 및 전략 수정:**
+    * 단순 카피용으로는 2-Stem도 유효하나, **커버 영상 제작 등을 위한 고품질 Backing Track을 위해 **"4-Stem 분리 후 병합"** 전략 채택.
+    * **Pipeline:** `Demucs(4 stems)` 실행 -> `Bass` 추출 -> `Drums + Vocals + Other`를 믹싱하여 `Backing Track(MR)` 생성.
+* **향후 계획:**
+    * 드럼 트랙 추가한 음원 제작 후 추가적인 성능 검증
        
