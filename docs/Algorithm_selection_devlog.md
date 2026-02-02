@@ -13,12 +13,9 @@ All audio files are stored on external storage (e.g., Google Drive) and can be l
 | **003** | 25.01.12 | NMF | 기타 베이스 분리 예제 2 (Raw) | 분리 실패 |
 | **004** | 25.01.14 | OpenUnmix | 기타 베이스 분리 예제 2 (Raw) | 퍼스트 기타 성공적, 베이스 노트 식별 용이, 세컨 기타 식별 불가 |
 | **005** | 25.01.16 | Demucs | 기타 베이스 분리 예제 2 (Raw) | 분리 성공, 잡음 및 블리딩 거의 없음 |
+
 ---
 
-<details>
-<summary><b>실험 상세 기록</b> - <i>Click to expand</i></summary>
-<br>
-   
 ###  Exp 001: 기타 베이스 분리 예제 1 (Raw Recording)
 * **개요:** 기타와 베이스만 있는 트랙에서 둘을 온전히 분리할 수 있는지 검증
 * **사용 음원:** 오디오 인터페이스 직렬로 직접 녹음한 일렉트릭 기타 2트랙, 일렉트릭 베이스 1트랙의 데모 (3분 30초 가량) 
@@ -154,4 +151,3 @@ All audio files are stored on external storage (e.g., Google Drive) and can be l
         - 베이스 노트가 더 선명해짐, 로우컷을 한듯이 저음역대의 벙벙되는 사운드가 정돈됨
         - 트랙 자체의 볼륨과 음역대는 깎였지만 카피 등의 정확한 음정 및 라인 인식이 필요한 작업에서는 더 용이한 결과물이 나옴
        
-</details>
