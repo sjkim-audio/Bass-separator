@@ -154,20 +154,30 @@ All audio files are stored on external storage (e.g., Google Drive) and can be l
       
 ---
 
-## Exp 006: 4-Stem vs 2-Stem Separation Strategy (Backing Track Optimization)
+## Exp 006: Backing Track Optimization ((2-Stem vs 4-Stem vs 6-Stem Model Selection)
 * **개요:**
-    * 프로젝트의 최종 목표(베이스 카피 + 고품질 MR 제작)를 달성하기 위해, 속도가 빠른 **2-Stem 분리(Bass vs Rest)**와 품질 중심의 **4-Stem 분리(Bass, Drums, Vocals, Other)** 전략을 비교 분석함.
-* **가설:**
-    * 2-Stem 분리(`--two-stems=bass`)가 연산 속도가 빠르므로 효율적일 것으로 예상했으나, `Rest`(나머지) 트랙의 품질 저하가 우려됨.
-* **비교 분석 결과:**
-    1.  **베이스 트랙 분리 성능**
-        * 2-Stem 모델에 비해 기본 모델에서 베이스의 분리도가 더 좋다고 판단됨. 흐려지는 노트 및 불필요한 부밍 현상이 더 적게 나타남.
-    3.  **Artifacts (위상 왜곡 및 잡음)**
-        * **2-Stem 모델:** `Rest = Mix - Bass` 방식의 연산 과정에서 위상 캔슬(Phase Cancellation)이나 "물속에서 듣는 듯한" 왜곡이 MR 트랙에 발생.
-        * **4-Stem 모델:** 각 악기가 제자리를 찾아 분리되므로, 이를 다시 합쳤을 때 훨씬 선명하고 자연스러운 사운드를 유지함.
-* **결론 및 전략 수정:**
-    * 단순 카피용으로는 2-Stem도 유효하나, **커버 영상 제작 등을 위한 고품질 Backing Track을 위해 **"4-Stem 분리 후 병합"** 전략 채택.
-    * **Pipeline:** `Demucs(4 stems)` 실행 -> `Bass` 추출 -> `Drums + Vocals + Other`를 믹싱하여 `Backing Track(MR)` 생성.
+    * 프로젝트의 목표(고품질 베이스 카피 + MR 제작)를 달성하기 위한 최적의 분리 모델을 확정하기 위해 **속도(2s)**, **기타 분리능력(6s)**, **기본 성능(4s)** 모델을 종합 비교함.
+* **비교 대상:**
+    1.  `htdemucs --two-stems=bass` (2-Stem: Bass vs Rest)
+    2.  `htdemucs_6s` (6-Stem: Bass, Drums, Vocals, Other, Guitar, Piano)
+    3.  `htdemucs` (4-Stem: Bass, Drums, Vocals, Other) - **Standard**
+* **결과 분석:**
+    * **1. 2-Stem 모델 (기각):**
+        * **문제점:** 베이스 트랙에 울렁거리는 잡음이 다른 모델에 비해 과함
+    * **2. 6-Stem 모델 (기각):**
+        * **가설:** 기타(Guitar)를 별도로 학습한 모델이므로, 베이스 트랙의 기타 블리딩을 가장 잘 제거할 것으로 예상함.
+        * **실제 청감 결과:**
+            * **Bass Clarity:** 기대와 달리 베이스 펀치감이 미세하게 줄어듬
+            * **Bleeding:** 오히려 분리되지 못한 기타 배음이 '쉬-익' 하는 고주파 노이즈(Artifacts) 형태로 베이스 트랙에 잔존함.
+    * **3. 4-Stem 모델 (최종 채택):**
+        * **장점:** 학습 데이터가 가장 풍부한 Standard 모델답게 **베이스의 펀치감(Body)과 선명도**가 가장 우수함.
+        * **MR 품질:** 기타(Guitar)가 `Other` 트랙으로 깔끔하게 뭉쳐 들어가며, 이를 `Drums + Vocals`와 합쳤을 때 가장 자연스럽고 위상 왜곡 없는 MR이 생성됨.
+* **최종 의사결정:**
+    * **Main Model:** `htdemucs` (4-stems) 확정.
+    * **Processing Pipeline:**
+        1.  4-Stem 분리 실행.
+        2.  `Bass` 트랙 → 채보 및 카피용으로 저장.
+        3.  `Drums` + `Vocals` + `Other` 믹싱 → **Backing Track (MR)** 생성.
 * **향후 계획:**
     * 드럼 트랙 추가한 음원 제작 후 추가적인 성능 검증
        
