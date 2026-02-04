@@ -1,4 +1,3 @@
-# 파일 위치: src/env_setup.py
 import subprocess
 import sys
 
