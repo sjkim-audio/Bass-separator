@@ -21,7 +21,10 @@ def load_data_from_drive(drive_path, local_path="./dataset", force_update=False)
     if os.path.exists(local_path):
         if force_update:
             print(f"♻️ 기존 데이터 삭제 후 재복사 모드 (--force)")
-            shutil.rmtree(local_path)
+            try:
+                shutil.rmtree(local_path)
+            except OSError as e:
+                print(f"⚠️ 기존 폴더 삭제 실패: {e}")
         else:
             print(f"✅ 데이터가 이미 준비되어 있습니다: {local_path}")
             print(f"   (업데이트하려면 force_update=True 옵션을 사용하세요)")
@@ -33,7 +36,7 @@ def load_data_from_drive(drive_path, local_path="./dataset", force_update=False)
     print(f"   📂 Dest  : {local_path}")
     
     try:
-        shutil.copytree(drive_path, local_path)
+        shutil.copytree(drive_path, local_path, dirs_exist_ok=True)
         
         # 파일 개수 확인 (검증)
         num_files = sum([len(files) for r, d, files in os.walk(local_path)])
