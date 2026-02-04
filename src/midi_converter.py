@@ -1,5 +1,7 @@
 !pip install pretty_midi
 
+# based for Bass
+
 import pretty_midi
 
 def save_as_midi(events, output_path, tempo=120):
