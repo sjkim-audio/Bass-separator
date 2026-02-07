@@ -12,7 +12,17 @@ def detect_pitch(y, sr=44100, fmin=40, fmax=400):
         fmin=librosa.note_to_hz('E1'), # 베이스 최저음 (약 41Hz)
         fmax=librosa.note_to_hz('G4'), # 베이스 고음 (약 392Hz)
         sr=sr
+        hop_length=512,
+        frame_length=4096, 
+        fill_na=None
     )
+
+    # [후처리] 미디언 필터로 튀는 값(Outlier) 보정
+    if np.any(np.isfinite(f0)):
+       f0_clean = scipy.signal.medfilt(f0, kernel_size=5)
+    else:
+       f0_clean = f0
+  
     # f0(주파수)를 MIDI 노트 번호로 변환
     midi_notes = librosa.hz_to_midi(f0)
     return f0, midi_notes
