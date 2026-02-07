@@ -24,5 +24,5 @@ def detect_pitch(y, sr=44100, fmin=40, fmax=400):
        f0_clean = f0
   
     # f0(주파수)를 MIDI 노트 번호로 변환
-    midi_notes = librosa.hz_to_midi(f0)
-    return f0, midi_notes
+    midi_notes = librosa.hz_to_midi(f0_clean)
+    return f0_clean, midi_notes
