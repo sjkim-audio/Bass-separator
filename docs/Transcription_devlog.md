@@ -67,11 +67,12 @@ E |-0----0----0-----0-|
 
 | Issue | Cause | Solution |
 | :--- | :--- | :--- |
+|**Phase 1**| | |
 | **Octave Error** | 배음(Harmonics)을 기본음으로 오인하거나 피치 트래킹이 불안정함 | `fmax`를 500Hz로 제한하고 `frame_length`를 4096으로 확장하여 저음 해상도 확보. |
 | **Pitch Instability** | 어택(Attack) 순간의 줄 장력 변화로 인한 피치 흔들림 | Onset 감지 후 약 0.05초 뒤의 피치 값들의 중간값(Median)을 취하는 안정화 로직 도입. |
 | **Dependency Conflict** | `torchcodec`과 `torchaudio` 버전 간의 호환성 문제 | `subprocess`를 활용한 시스템 레벨(FFmpeg) 설치 및 라이브러리 재설치 자동화 스크립트 작성. |
 | **Readability** | 단순 터미널 로그 출력으로 인한 가독성 저하 | 버퍼링(Buffering) 방식을 도입하여 가로형 악보 렌더링 및 자동 줄바꿈 구현. |
-|**Phase 2 | | |
+|**Phase 2**| | |
 | **Low-end Noise** | 피치가 31Hz 부근에서 일직선으로 그려짐 (실제 연주가 아님). | Demucs 분리 과정에서 남은 초저역 노이즈. **35Hz High-pass Filter (`scipy.signal.butter`)** 적용으로 해결. |
 | **Octave Jump** | 특정 구간에서 음이 갑자기 1옥타브 위(약 2배 주파수)로 튐. | 배음 간섭 문제. **Rolling Median Trend**를 분석하여 ±12 Semitone 차이가 나면 원위치시키는 알고리즘 도입. |
 
