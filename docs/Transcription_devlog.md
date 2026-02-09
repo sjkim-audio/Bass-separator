@@ -1,39 +1,46 @@
 # 🎸 Automatic Bass Transcription Pipeline (DevLog)
 
-> **Status:** Phase 1 Completed (Rule-based Transcription)
+> **Status:**
+> Phase 1 Completed (Rule-based Transcription)
+> Phase 2 Completed (Deep Learning-based Tracking & Error Correction)
 
 ## 1. Overview
-이 모듈은 오디오 입력에서 베이스 트랙을 분리하고, 이를 분석하여 **연주 가능한 타브 악보(ASCII Tablature)**로 자동 변환하는 기능을 수행합니다.
-단순한 주파수 변환을 넘어, 리듬감(Onset)을 살리고 시각적으로 직관적인 가로형 악보를 생성하는 데 초점을 맞췄습니다.
+이 프로젝트는 믹스된 오디오에서 베이스를 분리하고 **연주 가능한 타브 악보(ASCII Tab)**를 생성하는 파이프라인입니다. 
+
+초기(Phase 1)에는 librosa.pyin을 사용했으나, 분리된 베이스 음원(Stem)의 낮은 음질과 노이즈로 인해 정확도가 떨어지는 한계가 있었습니다. 현재(Phase 2)는 **SOTA 딥러닝 모델인 CREPE**를 도입하고, 베이스에 특화된 전처리(Pre-processing) 및 후처리(Post-processing) 로직을 통해 인식률을 비약적으로 향상시켰습니다.
 
 ---
 
-## 2. Technical Pipeline
+## 2. Technical Pipeline (Phase 2 Architecture)
 
-전체 파이프라인은 다음 4단계로 구성됩니다.
+현재 파이프라인은 다음 5단계로 고도화되었습니다.
 
-### Step 1: Source Separation (Demucs)
-- **Model:** `htdemucs` (Hybrid Transformer)
-- **Optimization:** `--two-stems=bass` 옵션을 사용하여 베이스 분리 속도를 2배 향상시킴.
-- **Role:** 믹스된 음원(Mix)에서 베이스 기타(Bass Stem)만을 깨끗하게 추출.
+### Step 1: Source Separation
+- **Model:** `Demucs (htdemucs)`
+- **Optimization:** `--two-stems=bass` 에서 실성능이 더 좋다고 판단된 기본 모델로 변경
+- **Notebook:** `01_Melody_Extraction...`, `02_tracking_separated...`
 
-### Step 2: Pitch Tracking (pYIN Algorithm)
-베이스 기타의 저음역대 특성에 맞춰 `librosa.pyin` 파라미터를 정밀 튜닝했습니다.
-- **Parameters:**
-  - `fmin=40Hz`, `fmax=400Hz`: 베이스 기타에 맞춘 파라미터 설정
-  - `frame_length=4096`: 저음 주파수 해상도(Frequency Resolution) 확보를 위해 윈도우 크기를 2배 확장.
-- **Filter:** Median Filter를 적용하여 순간적인 피치 튐 현상(Outliers) 제거.
+### Step 2: Audio Pre-processing (Signal Cleaning)
+- **High-pass Filter:** 35Hz 미만의 비음악적 노이즈(DC Offset, Rumble) 제거.
+- **Normalization:** 오디오 파형의 최대 진폭을 1.0으로 정규화하여 모델의 입력 감도 확보.
 
-### Step 3: Onset Detection & Pitch Stabilization
-기계적인 샘플링 대신, **'줄을 튕기는 시점'**을 감지하여 악보를 생성합니다.
-- **Onset Detection:** 에너지 급상승 구간(Transient)을 감지하여 노트의 시작점 포착.
-- **Stabilization Logic:** 줄을 튕기는 직후(Attack)의 불안정한 피치를 무시하고, `onset + 5 frames` 뒤의 **Median Pitch**를 채택하여 정확도 향상.
+### Step 3: Deep Learning Pitch Tracking 
+- **Algorithm:** `torchcrepe` (CNN-based Pitch Tracker)
+- **Notebook:** `04_tracking_by_CREPE.ipynb`
+- **Robust Configuration:**
+  - **Decoder:** `Argmax` 
+  - **Resolution:** 10ms (Hop Length: 160 @ 16kHz).
+  - **Scope:** `fmin=40Hz` (Low E 근사치) ~ `fmax=500Hz`.
 
-### Step 4: Fretboard Mapping & Rendering
-- **Algorithm:** `Lowest Fret Priority` (개방현 및 저프렛 우선 선택 로직 적용).
-- **Visualization:** 수직형 로그(Log)가 아닌 **가로형 텍스트 악보(Horizontal Tab)** 구현.
-  - **Rhythmic Spacing:** 음의 길이에 따라 대시(`-`) 간격을 동적으로 조절하여 시각적 박자감 구현.
-  - **Wrapping:** 터미널 폭(80자)에 맞춰 자동 줄바꿈 처리.
+### Step 4: Error Correction (Post-processing)
+- **Notebook:** `05_Octave_Error_Correction.ipynb`
+- **Median Filter:** 순간적인 스파이크 노이즈 제거.
+- **Octave Correction:** 배음(Harmonics)을 기음으로 착각하여 피치가 12반음(1옥타브) 튀는 현상을 감지하고, 이동 평균(Rolling Median) 트렌드를 기반으로 강제 보정.
+
+### Step 5: Tab Generation & Visualization
+- **Notebook:** `03_Tab_generator.ipynb`
+- **Logic:** `Lowest Fret Priority` + Onset Synchronization.
+- **Visualization:** CREPE의 시간축과 동기화된 가로형 ASCII 악보 생성.
 
 ---
 
@@ -64,13 +71,17 @@ E |-0----0----0-----0-|
 | **Pitch Instability** | 어택(Attack) 순간의 줄 장력 변화로 인한 피치 흔들림 | Onset 감지 후 약 0.05초 뒤의 피치 값들의 중간값(Median)을 취하는 안정화 로직 도입. |
 | **Dependency Conflict** | `torchcodec`과 `torchaudio` 버전 간의 호환성 문제 | `subprocess`를 활용한 시스템 레벨(FFmpeg) 설치 및 라이브러리 재설치 자동화 스크립트 작성. |
 | **Readability** | 단순 터미널 로그 출력으로 인한 가독성 저하 | 버퍼링(Buffering) 방식을 도입하여 가로형 악보 렌더링 및 자동 줄바꿈 구현. |
+|**Phase 2 | | |
+| **Low-end Noise** | 피치가 31Hz 부근에서 일직선으로 그려짐 (실제 연주가 아님). | Demucs 분리 과정에서 남은 초저역 노이즈. **35Hz High-pass Filter (`scipy.signal.butter`)** 적용으로 해결. |
+| **Octave Jump** | 특정 구간에서 음이 갑자기 1옥타브 위(약 2배 주파수)로 튐. | 배음 간섭 문제. **Rolling Median Trend**를 분석하여 ±12 Semitone 차이가 나면 원위치시키는 알고리즘 도입. |
 
 ---
 
 ## 5. Future Works (Roadmap)
 
-다음 단계에서 개선할 사항들입니다.
+다음 단계(Phase 3) 목표입니다.
 
-- [ ] **Viterbi Algorithm:** 최단 경로 탐색을 통한 운지법(Fingering) 최적화 (단순 저프렛 우선 방식 탈피).
+- [ ] **MIDI Export:** 정제된 주파수 데이터를 `.mid` 파일로 변환 (DAW 연동).
+- [ ] **Smart Fingering (Cost Function):** 현재의 '개방현 우선' 로직을 개선하여, 손의 이동 거리(Cost)를 최소화하는 Viterbi 기반 운지법 추천.
+- [ ] **Streamlit Demo:** 웹 브라우저에서 바로 파일을 업로드하고 악보를 볼 수 있는 데모 페이지 구축.
 - [ ] **Playing Technique Classification:** Slap vs Finger 주법 분류 모델 추가 (Timbre Analysis).
-- [ ] **MIDI Export:** 텍스트 악보를 DAW에서 사용 가능한 `.mid` 파일로 변환하는 기능 구현.
