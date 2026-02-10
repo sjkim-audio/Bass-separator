@@ -1,40 +1,86 @@
-# 먼저 설치 필요: pip install museval
 import museval
 import numpy as np
 import librosa
+import scipy.signal
 
-def evaluate_separation(reference_path, estimated_path):
+def align_audio(ref, est, sr=44100):
     """
-    업계 표준 BSSEval v4 방식으로 SDR, SIR, SAR을 측정하는 함수
+    Synchronizes the estimated audio with the reference audio using cross-correlation.
+    This corrects minor latency issues introduced by the separation model.
     """
-    # 1. 오디오 로드 (museval은 (n_channels, n_samples) 형태를 원함)
-    # 반드시 원본(reference)과 분리본(estimated)의 길이가 같아야 함
-    ref, sr = librosa.load(reference_path, sr=None, mono=False)
-    est, _ = librosa.load(estimated_path, sr=None, mono=False)
+    # Use the first 30 seconds for alignment to speed up calculation
+    max_len = sr * 30
     
-    # 길이가 다르면 짧은 쪽에 맞춤 (필수 전처리)
+    # Convert to mono for correlation calculation
+    ref_mono = np.mean(ref, axis=0) if ref.ndim > 1 else ref
+    est_mono = np.mean(est, axis=0) if est.ndim > 1 else est
+    
+    # Calculate cross-correlation
+    correlation = scipy.signal.correlate(
+        ref_mono[:max_len], 
+        est_mono[:max_len], 
+        mode='full'
+    )
+    
+    # Find the lag (shift amount)
+    lag = np.argmax(correlation) - (len(est_mono[:max_len]) - 1)
+    
+    # Apply shift
+    if lag > 0:
+        # Estimated is ahead of Reference
+        est = est[:, lag:]
+        ref = ref[:, :-lag]
+    elif lag < 0:
+        # Estimated is behind Reference (Latency)
+        lag = abs(lag)
+        est = est[:, :-lag]
+        ref = ref[:, lag:]
+        
+    return ref, est
+
+def evaluate_separation(reference_path, estimated_path, align=True):
+    """
+    Evaluates separation quality using BSSEval v4 metrics (SDR, SIR, SAR).
+    
+    Args:
+        reference_path (str): Path to the ground truth (clean) file.
+        estimated_path (str): Path to the separated (model output) file.
+        align (bool): Whether to correct temporal alignment before evaluation.
+        
+    Returns:
+        dict: Dictionary containing median SDR, SIR, and SAR scores.
+    """
+    # 1. Load Audio (Keep original SR)
+    ref, sr = librosa.load(reference_path, sr=None, mono=False)
+    est, _ = librosa.load(estimated_path, sr=sr, mono=False)
+
+    # 2. Ensure Channel Dimension (Mono -> Stereo shape)
+    if ref.ndim == 1: ref = ref[np.newaxis, :]
+    if est.ndim == 1: est = est[np.newaxis, :]
+
+    # 3. Trim to Minimum Length
     min_len = min(ref.shape[1], est.shape[1])
     ref = ref[:, :min_len]
     est = est[:, :min_len]
 
-    # 형태 변환 (Shape 맞추기: 채널, 샘플, 1) -> museval 요구사항
-    # 모노일 경우 차원 추가 필요
-    if ref.ndim == 1:
-        ref = ref.reshape(1, -1)
-        est = est.reshape(1, -1)
-        
-    ref = ref.reshape(ref.shape[0], ref.shape[1], 1)
-    est = est.reshape(est.shape[0], est.shape[1], 1)
+    # 4. Temporal Alignment (Crucial for deep learning models)
+    if align:
+        ref, est = align_audio(ref, est, sr)
 
-    # 2. 평가 실행 (BSSEval)
-    # win: 평가 윈도우 크기 (보통 1초=44100 샘플 단위로 쪼개서 평균냄)
-    sdr, isr, sir, sar, _ = museval.eval_bss_v4(ref, est, win=sr)
+    # 5. Reshape for Museval: (n_sources, n_samples, n_channels)
+    # We evaluate 1 source (Bass)
+    ref_eval = ref.T[np.newaxis, :, :]
+    est_eval = est.T[np.newaxis, :, :]
 
-    # 3. 결과값 평균내기 (구간별 평균)
+    # 6. Run BSSEval v4
+    # win=sr sets the evaluation window to 1 second
+    sdr, isr, sir, sar, _ = museval.eval_bss_v4(ref_eval, est_eval, win=sr)
+
+    # 7. Aggregate Results (Median)
     metrics = {
-        "SDR (종합 점수)": np.nanmedian(sdr),
-        "SIR (분리도/간섭)": np.nanmedian(sir),
-        "SAR (음질/아티팩트)": np.nanmedian(sar)
+        "SDR": np.nanmedian(sdr),
+        "SIR": np.nanmedian(sir),
+        "SAR": np.nanmedian(sar)
     }
-    
+
     return metrics
