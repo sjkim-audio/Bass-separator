@@ -3,37 +3,70 @@ import librosa.display
 import matplotlib.pyplot as plt
 import numpy as np
 
-# 오디오 데이터 시각화
-def plot_spectrogram(audio_path, title="Spectrogram", sr=44100):
-
-    y, sr = librosa.load(audio_path, sr=sr)
-
-    plt.figure(figsize=(12, 4))
-
-    # STFT (주파수 변환)
+def plot_spectrogram(y, sr, title="Spectrogram", ax=None):
+    """
+    Plots the log-power spectrogram of an audio signal.
+    Can be plotted on a specific axes (ax) for subplotting.
+    """
+    # STFT computation
     D = librosa.amplitude_to_db(np.abs(librosa.stft(y)), ref=np.max)
 
-    librosa.display.specshow(D, sr=sr, x_axis='time', y_axis='log')
-    plt.colorbar(format='%+2.0f dB')
-    plt.title(title)
+    # If no axes provided, create a new figure
+    if ax is None:
+        plt.figure(figsize=(12, 4))
+        ax = plt.gca()
+
+    # Draw spectrogram
+    img = librosa.display.specshow(D, sr=sr, x_axis='time', y_axis='log', ax=ax)
+    ax.set_title(title)
+    
+    # Add colorbar only if it's a standalone plot
+    if ax.figure.axes and len(ax.figure.axes) == 1:
+        plt.colorbar(img, format='%+2.0f dB')
+        plt.tight_layout()
+        plt.show()
+    return img
+
+def compare_separation_visuals(ref_path, est_path, sr=44100):
+    """
+    Visually compares the Ground Truth (Reference) vs. Estimated Separation.
+    Generates a 2x2 grid:
+    - Left: Waveforms (Time Domain) - Check for volume/phase issues
+    - Right: Spectrograms (Freq Domain) - Check for bandwidth loss/artifacts
+    """
+    # Load Audio
+    y_ref, _ = librosa.load(ref_path, sr=sr)
+    y_est, _ = librosa.load(est_path, sr=sr)
+    
+    # Trim to minimum length
+    min_len = min(len(y_ref), len(y_est))
+    y_ref = y_ref[:min_len]
+    y_est = y_est[:min_len]
+
+    # Setup Plot (2 Rows x 2 Columns)
+    fig, axes = plt.subplots(2, 2, figsize=(16, 10))
+    
+    # 1. Waveform Comparison
+    librosa.display.waveshow(y_ref, sr=sr, alpha=0.6, color='gray', ax=axes[0, 0])
+    axes[0, 0].set_title("Waveform: Ground Truth (Clean Bass)")
+    axes[0, 0].set_ylabel("Amplitude")
+
+    librosa.display.waveshow(y_est, sr=sr, alpha=0.8, color='dodgerblue', ax=axes[1, 0])
+    axes[1, 0].set_title("Waveform: Separated Output")
+    axes[1, 0].set_ylabel("Amplitude")
+
+    # 2. Spectrogram Comparison
+    plot_spectrogram(y_ref, sr, title="Spectrogram: Ground Truth", ax=axes[0, 1])
+    img = plot_spectrogram(y_est, sr, title="Spectrogram: Separated Output", ax=axes[1, 1])
+    
+    # Shared Colorbar for Spectrograms
+    fig.colorbar(img, ax=axes[:, 1], format='%+2.0f dB', shrink=0.6)
+    
+    plt.suptitle(f"Separation Quality Analysis\nRef: {ref_path.split('/')[-1]} | Est: {est_path.split('/')[-1]}", fontsize=14)
     plt.tight_layout()
     plt.show()
 
-# 두 오디오 데이터 시각화 비교
-def compare_tracks(mix_path, bass_path):
-
-    y_mix, sr = librosa.load(mix_path, sr=None)
-    y_bass, _ = librosa.load(bass_path, sr=sr)
-
-    plt.figure(figsize=(14, 6))
-
-    plt.subplot(2, 1, 1)
-    librosa.display.waveshow(y_mix, sr=sr, alpha=0.6, color='gray')
-    plt.title("Original Mixture")
-
-    plt.subplot(2, 1, 2)
-    librosa.display.waveshow(y_bass, sr=sr, alpha=0.8, color='blue')
-    plt.title("Separated Bass")
-
-    plt.tight_layout()
-    plt.show()
+# Legacy support
+def plot_single_track(audio_path, title="Spectrogram", sr=44100):
+    y, sr = librosa.load(audio_path, sr=sr)
+    plot_spectrogram(y, sr, title)
