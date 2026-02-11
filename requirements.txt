@@ -3,10 +3,14 @@ demucs
 librosa
 museval
 pretty_midi
+soundfile
+pydub
 
 # Math & Data
 numpy
 scipy
+torch
+torchaudio
 
 # Visualization
 matplotlib
