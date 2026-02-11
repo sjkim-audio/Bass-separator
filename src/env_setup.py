@@ -1,54 +1,80 @@
 import subprocess
 import sys
+import os
 import importlib.util
 
 def run_command(command, description):
-    """내부 헬퍼 함수: 명령어 실행 및 로그 출력"""
-    print(f"📦 {description} 진행 중...")
+    """
+    Runs a shell command and prints the status.
+    """
+    print(f"📦 Processing: {description}...")
     try:
         subprocess.run(command, check=True, capture_output=True, text=True)
-        print(f"✅ {description} 완료.")
+        print(f"✅ Completed: {description}")
     except subprocess.CalledProcessError as e:
-        print(f"❌ {description} 실패: {e.stderr}")
+        print(f"❌ Failed: {description}")
+        print(f"   Error Log: {e.stderr}")
 
-def check_and_install_demucs():
-    """Demucs 설치 확인 및 설치"""
-    if importlib.util.find_spec("demucs") is None:
-        print("⚠️ Demucs가 감지되지 않아 설치합니다.")
-        run_command(['pip', 'install', 'demucs'], "Demucs 라이브러리 설치")
+def check_system_dependencies():
+    """
+    Checks and installs system-level dependencies (e.g., FFmpeg).
+    """
+    print("\n🔧 [System] Checking system tools...")
+    
+    # Check FFmpeg (Crucial for audio processing)
+    if shutil.which("ffmpeg") is None:
+        print("⚠️ FFmpeg not found. Installing via apt-get...")
+        run_command(['apt-get', 'update', '-qq'], "Update Package List")
+        run_command(['apt-get', 'install', '-y', 'ffmpeg'], "Install FFmpeg")
     else:
-        print("✅ Demucs가 이미 설치되어 있습니다.")
+        print("✅ FFmpeg is already installed.")
+
+def install_python_requirements(req_path="requirements.txt"):
+    """
+    Installs Python libraries from requirements.txt.
+    """
+    print("\n🐍 [Python] Checking libraries...")
+    
+    if os.path.exists(req_path):
+        print(f"📄 Found {req_path}. Installing dependencies...")
+        # -q: Quiet mode (less logs), --upgrade: Ensure latest versions
+        run_command([sys.executable, "-m", "pip", "install", "-r", req_path], "Pip Install Requirements")
+    else:
+        print(f"⚠️ Warning: {req_path} not found in current directory.")
+        print("   Skipping bulk installation. Please check your file structure.")
 
 def init_colab_env():
     """
-    [통합 환경 설정]
-    1. FFmpeg 시스템 설치
-    2. Audio 라이브러리 충돌 해결 (torchaudio/torchcodec)
-    3. Demucs 라이브러리 설치
+    [Main Entry Point]
+    Sets up the complete environment for Bass Separation.
+    1. Install System Dependencies (FFmpeg)
+    2. Install Python Dependencies (requirements.txt)
+    3. Perform a final health check
     """
-    print("\n🔧 [System] 오디오 처리 환경 점검 및 초기화...\n")
+    print("🚀 Initializing Environment...")
+
+    # 1. System Setup
+    check_system_dependencies()
+
+    # 2. Python Setup
+    install_python_requirements()
+
+    # 3. Health Check (Verify critical imports)
+    print("\n🏥 Performing Health Check...")
+    critical_libs = ["demucs", "torchaudio", "librosa", "museval"]
+    missing = []
     
-    # 1. FFmpeg 점검
-    ffmpeg_check = subprocess.run(['which', 'ffmpeg'], capture_output=True, text=True)
-    if ffmpeg_check.returncode != 0:
-        run_command(['apt-get', 'update', '-qq'], "시스템 패키지 업데이트")
-        run_command(['apt-get', 'install', '-y', 'ffmpeg'], "FFmpeg 설치")
+    for lib in critical_libs:
+        if importlib.util.find_spec(lib) is None:
+            missing.append(lib)
+    
+    if not missing:
+        print("✅ All critical libraries are ready!")
     else:
-        print("✅ FFmpeg가 이미 설치되어 있습니다.")
+        print(f"❌ Missing libraries: {', '.join(missing)}")
+        print("   Try running '!pip install -r requirements.txt' manually.")
 
-    # 2. Demucs 설치
-    check_and_install_demucs()
+    print("\n🎉 Environment Setup Complete!")
 
-    # 3. 라이브러리 호환성 점검 (가장 마지막에 수행)
-    try:
-        import torchcodec
-        import torchaudio
-        print("✅ 오디오 코덱 라이브러리(torchaudio, torchcodec) 정상 작동.")
-    except (ImportError, RuntimeError, OSError):
-        print("⚠️ 라이브러리 버전 충돌 감지! 재설치 루틴 실행 (약 1분 소요)...")
-        run_command(['pip', 'uninstall', '-y', 'torchcodec', 'torchaudio'], "충돌 패키지 제거")
-        run_command(['pip', 'install', 'torchaudio', 'soundfile'], "torchaudio 재설치")
-        run_command(['pip', 'install', 'torchcodec'], "torchcodec 재설치")
-        print("\n🔄 [완료] 라이브러리 복구됨.")
-
-    print("\n🎉 모든 환경 설정이 준비되었습니다!")
+# Need shutil for 'which' command
+import shutil
