@@ -1,0 +1,12 @@
+# Audio Processing & AI Models
+demucs
+librosa
+museval
+pretty_midi
+
+# Math & Data
+numpy
+scipy
+
+# Visualization
+matplotlib
