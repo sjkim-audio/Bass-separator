@@ -73,3 +73,31 @@ def plot_single_track(audio_path, title="Spectrogram", sr=44100):
     plt.colorbar(img, format='%+2.0f dB')
     plt.tight_layout()
     plt.show()
+
+def visualize_metrics(metrics, title="Separation Quality Over Time"):
+    import matplotlib.pyplot as plt
+    
+    sdr = metrics['SDR']
+    sir = metrics['SIR']
+    sar = metrics['SAR']
+    hop = metrics['hop_sec']
+    
+    time_axis = np.arange(len(sdr)) * hop
+    
+    avg_sdr = np.nanmedian(sdr)
+    avg_sir = np.nanmedian(sir)
+    avg_sar = np.nanmedian(sar)
+    
+    plt.figure(figsize=(14, 6))
+    plt.plot(time_axis, sdr, label=f'SDR (Overall Quality): avg {avg_sdr:.1f}dB', color='dodgerblue', linewidth=2)
+    plt.plot(time_axis, sir, label=f'SIR (Interference): avg {avg_sir:.1f}dB', color='forestgreen', linewidth=1.5, linestyle='--', alpha=0.7)
+    plt.plot(time_axis, sar, label=f'SAR (Artifacts): avg {avg_sar:.1f}dB', color='salmon', linewidth=1.5, linestyle=':', alpha=0.7)
+    
+    plt.title(title, fontsize=14, fontweight='bold')
+    plt.xlabel("Time (seconds)", fontsize=12)
+    plt.ylabel("Score (dB)", fontsize=12)
+    plt.legend(loc='lower right', frameon=True, fontsize=11)
+    plt.grid(True, linestyle='-', alpha=0.3)
+    plt.ylim(-5, 30)
+    plt.tight_layout()
+    plt.show()
