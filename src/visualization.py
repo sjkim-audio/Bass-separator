@@ -3,10 +3,9 @@ import librosa.display
 import matplotlib.pyplot as plt
 import numpy as np
 
-def plot_spectrogram(y, sr, title="Spectrogram", ax=None):
+def plot_spectrogram(y, sr, title="Spectrogram", ax=None, add_colorbar=False):
     """
     Plots the log-power spectrogram of an audio signal.
-    Can be plotted on a specific axes (ax) for subplotting.
     """
     # STFT computation
     D = librosa.amplitude_to_db(np.abs(librosa.stft(y)), ref=np.max)
@@ -20,19 +19,15 @@ def plot_spectrogram(y, sr, title="Spectrogram", ax=None):
     img = librosa.display.specshow(D, sr=sr, x_axis='time', y_axis='log', ax=ax)
     ax.set_title(title)
     
-    # Add colorbar only if it's a standalone plot
-    if ax.figure.axes and len(ax.figure.axes) == 1:
-        plt.colorbar(img, format='%+2.0f dB')
-        plt.tight_layout()
-        plt.show()
+    # Add colorbar only if explicitly requested (usually for single plots)
+    if add_colorbar and ax is not None:
+        plt.colorbar(img, ax=ax, format='%+2.0f dB')
+        
     return img
 
 def compare_separation_visuals(ref_path, est_path, sr=44100):
     """
     Visually compares the Ground Truth (Reference) vs. Estimated Separation.
-    Generates a 2x2 grid:
-    - Left: Waveforms (Time Domain) - Check for volume/phase issues
-    - Right: Spectrograms (Freq Domain) - Check for bandwidth loss/artifacts
     """
     # Load Audio
     y_ref, _ = librosa.load(ref_path, sr=sr)
@@ -56,17 +51,25 @@ def compare_separation_visuals(ref_path, est_path, sr=44100):
     axes[1, 0].set_ylabel("Amplitude")
 
     # 2. Spectrogram Comparison
+    # We pass add_colorbar=False because we will add a shared one later
     plot_spectrogram(y_ref, sr, title="Spectrogram: Ground Truth", ax=axes[0, 1])
     img = plot_spectrogram(y_est, sr, title="Spectrogram: Separated Output", ax=axes[1, 1])
     
-    # Shared Colorbar for Spectrograms
-    fig.colorbar(img, ax=axes[:, 1], format='%+2.0f dB', shrink=0.6)
+    # 3. Add Shared Colorbar manually to the right
+    # [left, bottom, width, height] in figure coordinate
+    plt.subplots_adjust(right=0.9) # Make room on the right
+    cbar_ax = fig.add_axes([0.92, 0.15, 0.015, 0.7]) 
+    fig.colorbar(img, cax=cbar_ax, format='%+2.0f dB')
+    cbar_ax.set_ylabel('Intensity (dB)', rotation=270, labelpad=15)
     
     plt.suptitle(f"Separation Quality Analysis\nRef: {ref_path.split('/')[-1]} | Est: {est_path.split('/')[-1]}", fontsize=14)
-    plt.tight_layout()
+    # plt.tight_layout() # Warning: tight_layout conflicts with add_axes, so we rely on manual adjust
     plt.show()
 
 # Legacy support
 def plot_single_track(audio_path, title="Spectrogram", sr=44100):
     y, sr = librosa.load(audio_path, sr=sr)
-    plot_spectrogram(y, sr, title)
+    img = plot_spectrogram(y, sr, title)
+    plt.colorbar(img, format='%+2.0f dB')
+    plt.tight_layout()
+    plt.show()
