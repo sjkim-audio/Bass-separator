@@ -3,7 +3,7 @@ import numpy as np
 import librosa
 import scipy.signal
 import museval
-from museval import metrics  # 핵심: metrics 모듈을 명시적으로 임포트
+from museval import metrics 
 
 def align_audio(ref, est, sr=44100):
     """
@@ -56,11 +56,8 @@ def calculate_metrics(reference_path, estimated_path, win_sec=1.0):
     ref_eval = ref.T[np.newaxis, :, :]
     est_eval = est.T[np.newaxis, :, :]
     
-    # 5. 평가 실행 (함수명 및 인자 수정됨)
-    # win -> window, hop -> hop
+    # 5. 평가 실행 
     win_samples = int(win_sec * sr)
-    
-    # museval.metrics.bss_eval 사용
     sdr, isr, sir, sar, _ = metrics.bss_eval(
         ref_eval, 
         est_eval, 
@@ -76,35 +73,6 @@ def calculate_metrics(reference_path, estimated_path, win_sec=1.0):
         "hop_sec": win_sec
     }
 
-def visualize_metrics(metrics, title="Separation Quality Over Time"):
-    # (이전 코드와 동일, 생략 가능하지만 완전성을 위해 유지하는 것이 좋음)
-    import matplotlib.pyplot as plt
-    
-    sdr = metrics['SDR']
-    sir = metrics['SIR']
-    sar = metrics['SAR']
-    hop = metrics['hop_sec']
-    
-    time_axis = np.arange(len(sdr)) * hop
-    
-    avg_sdr = np.nanmedian(sdr)
-    avg_sir = np.nanmedian(sir)
-    avg_sar = np.nanmedian(sar)
-    
-    plt.figure(figsize=(14, 6))
-    plt.plot(time_axis, sdr, label=f'SDR (Overall Quality): avg {avg_sdr:.1f}dB', color='dodgerblue', linewidth=2)
-    plt.plot(time_axis, sir, label=f'SIR (Interference): avg {avg_sir:.1f}dB', color='forestgreen', linewidth=1.5, linestyle='--', alpha=0.7)
-    plt.plot(time_axis, sar, label=f'SAR (Artifacts): avg {avg_sar:.1f}dB', color='salmon', linewidth=1.5, linestyle=':', alpha=0.7)
-    
-    plt.title(title, fontsize=14, fontweight='bold')
-    plt.xlabel("Time (seconds)", fontsize=12)
-    plt.ylabel("Score (dB)", fontsize=12)
-    plt.legend(loc='lower right', frameon=True, fontsize=11)
-    plt.grid(True, linestyle='-', alpha=0.3)
-    plt.ylim(-5, 30)
-    plt.tight_layout()
-    plt.show()
-
 def run_evaluation(ref_path, est_path, show_plot=True):
     print(f"📊 Processing: {os.path.basename(est_path)}")
     try:
@@ -118,9 +86,6 @@ def run_evaluation(ref_path, est_path, show_plot=True):
         print(f"✅ Median SAR: {np.nanmedian(metrics_data['SAR']):.2f} dB")
         print("-" * 40)
         
-        if show_plot:
-            visualize_metrics(metrics_data, title=f"Quality Analysis: {os.path.basename(est_path)}")
-            
         return metrics_data
         
     except Exception as e:
