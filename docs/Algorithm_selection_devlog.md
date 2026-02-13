@@ -14,7 +14,7 @@ All audio files are stored on external storage (e.g., Google Drive) and can be l
 | **004** | 25.01.14 | OpenUnmix | 기타 베이스 분리 예제 2 (Raw) | 퍼스트 기타 성공적, 베이스 노트 식별 용이, 세컨 기타 식별 불가 |
 | **005** | 25.01.16 | Demucs | 기타 베이스 분리 예제 2 (Raw) | 분리 성공, 잡음 및 블리딩 거의 없음 |
 | **006** | 26.02.02 | Demucs (4-stems) | 기타 베이스 분리 예제 2 (Raw) | 2-stem 대비 분리도 상승, Backing Track 제작 |
-
+| **007** | 26.02.14 | BSS_eval (SDR, SIR, SAR) | performance_test_demo(guitar + bass) | 모델 간 정량적 성능 비교 및 2-Stem 파인튜닝 잠재력 확인 |
 ---
 
 ###  Exp 001: 기타 베이스 분리 예제 1 (Raw Recording)
@@ -180,4 +180,33 @@ All audio files are stored on external storage (e.g., Google Drive) and can be l
         3.  `Drums` + `Vocals` + `Other` 믹싱 → **Backing Track (MR)** 생성.
 * **향후 계획:**
     * 드럼 트랙 추가한 음원 제작 후 추가적인 성능 검증
-       
+
+---
+
+## Exp 007: BSS_eval
+* **개요:**
+    * 정량적 성능 지표 기반 모델 재평가 및 파이프라인 최적화
+    * 이전 실험(Exp 006)에서 수행한 청감 기반의 모델 선정(4-Stem)을 검증하기 위해, `museval` 알고리즘을 활용하여 모델별 정량적 성능 지표(SDR, SIR, SAR)를 측정함.
+    * 측정된 수치를 바탕으로 시스템 파이프라인 구축의 효율성과 향후 파인튜닝(Fine-tuning)을 고려했을 때, 2-Stem 모델(`htdemucs_two_stems`)이 가지는 공학적 이점을 재평가함.
+* **사용 음원:** performance_test_demo(guitar + bass)
+* **비교 대상 (Demucs Models):**
+    1.  `htdemucs` (Default / 4-Stem)
+    2.  `htdemucs_two_stems` (2-Stem: Bass vs Rest)
+    3.  `htdemucs_6s` (6-Stem)
+* **결과 분석:**
+
+| Model | Median SDR (Overall) | Median SIR (Interference) | Median SAR (Artifacts) |
+| :--- | :---: | :---: | :---: |
+| **htdemucs (Default)** | 18.77 dB | inf dB | 15.68 dB |
+| **htdemucs_two_stems** | 18.78 dB | inf dB | 15.63 dB |
+| **htdemucs_6s** | 19.05 dB | inf dB | 9.70 dB |
+
+    * **6-Stem 모델의 한계 수치 증명:** SDR은 19.05dB로 가장 높으나, SAR(음질 왜곡 지표)이 9.70dB로 급락함. 이는 Exp 006에서 청감상 확인되었던 '고주파 노이즈(Artifacts)' 발생이 수치로 입증된 결과임. 추가로 다른 모델에는 없는 울렁거림이 확인됨.
+    * **2-Stem과 4-Stem의 성능 유사성:** `htdemucs`와 `htdemucs_two_stems`의 SDR 수치상 굉장히 유사한 분리 성능을 보여줌.
+    * **2-Stem 모델의 시스템적 이점 재조명:**
+        * **연산 효율성:** 베이스 트랙과 백킹 트랙(MR)을 생성하는 것이 목적일 때, 4-Stem 분리 후 3개의 트랙(Vocals, Drums, Other)을 다시 병합(Mix)하는 연산보다, 처음부터 분리되어 출력되는 2-Stem 방식이 파일 I/O 및 메모리 관리 측면에서 압도적으로 효율적임.
+        * **파인튜닝 잠재력 (가장 중요한 Insight):** 향후 베이스 특화 모델로 직접 파인튜닝을 진행할 경우, 예측해야 할 타겟 변수를 4개에서 2개로 줄임으로써 모델의 손실 함수(Loss)가 '베이스 음역대'에만 집중하도록 설계할 수 있음. 이는 데이터 차원 축소를 통해 모델의 정밀도를 한 단계 더 끌어올릴 수 있는 구조적 이점임.
+* **최종 의사결정 (Update):**
+    * Exp 006의 청감 결과와 Exp 007의 정량적 지표를 종합한 결과, 분리 품질이 동일하다면 시스템 최적화와 향후 확장성(Fine-tuning)에 절대적으로 유리한 **`htdemucs_two_stems` 모델을 최종 베이스 분리 및 MR 제작 파이프라인으로 채택**함.
+* **향후 계획:**
+    * 주파수 대역이 겹쳐 분리 난이도가 높은 악기(킥 드럼, 피아노 저음부 등)를 추가한 새로운 음원을 제작하여, 2-Stem 모델의 SIR(간섭 제거) 방어 능력을 하드 케이스(Hard Case)에서 추가 검증할 예정.
