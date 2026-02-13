@@ -194,18 +194,17 @@ All audio files are stored on external storage (e.g., Google Drive) and can be l
     2.  `htdemucs_two_stems` (2-Stem: Bass vs Rest)
     3.  `htdemucs_6s` (6-Stem)
 * **결과 분석:**
-
+    * **6-Stem 모델의 한계 수치 증명:** SDR은 19.05dB로 가장 높으나, SAR(음질 왜곡 지표)이 9.70dB로 급락함. 이는 Exp 006에서 청감상 확인되었던 '고주파 노이즈(Artifacts)' 발생이 수치로 입증된 결과임. 추가로 다른 모델에는 없는 울렁거림이 확인됨.
+    * **2-Stem과 4-Stem의 성능 유사성:** `htdemucs`와 `htdemucs_two_stems`의 SDR 수치상 굉장히 유사한 분리 성능을 보여줌.
+    * **2-Stem 모델의 시스템적 이점 재조명:**
+        * **연산 효율성:** 베이스 트랙과 백킹 트랙(MR)을 생성하는 것이 목적일 때, 4-Stem 분리 후 3개의 트랙(Vocals, Drums, Other)을 다시 병합(Mix)하는 연산보다, 처음부터 분리되어 출력되는 2-Stem 방식이 파일 I/O 및 메모리 관리 측면에서 압도적으로 효율적임.
+        * **파인튜닝 잠재력 (가장 중요한 Insight):** 향후 베이스 특화 모델로 직접 파인튜닝을 진행할 경우, 예측해야 할 타겟 변수를 4개에서 2개로 줄임으로써 모델의 손실 함수(Loss)가 '베이스 음역대'에만 집중하도록 설계할 수 있음. 이는 데이터 차원 축소를 통해 모델의 정밀도를 한 단계 더 끌어올릴 수 있는 구조적 이점임.
 | Model | Median SDR (Overall) | Median SIR (Interference) | Median SAR (Artifacts) |
 | :--- | :---: | :---: | :---: |
 | **htdemucs (Default)** | 18.77 dB | inf dB | 15.68 dB |
 | **htdemucs_two_stems** | 18.78 dB | inf dB | 15.63 dB |
 | **htdemucs_6s** | 19.05 dB | inf dB | 9.70 dB |
 
-    * **6-Stem 모델의 한계 수치 증명:** SDR은 19.05dB로 가장 높으나, SAR(음질 왜곡 지표)이 9.70dB로 급락함. 이는 Exp 006에서 청감상 확인되었던 '고주파 노이즈(Artifacts)' 발생이 수치로 입증된 결과임. 추가로 다른 모델에는 없는 울렁거림이 확인됨.
-    * **2-Stem과 4-Stem의 성능 유사성:** `htdemucs`와 `htdemucs_two_stems`의 SDR 수치상 굉장히 유사한 분리 성능을 보여줌.
-    * **2-Stem 모델의 시스템적 이점 재조명:**
-        * **연산 효율성:** 베이스 트랙과 백킹 트랙(MR)을 생성하는 것이 목적일 때, 4-Stem 분리 후 3개의 트랙(Vocals, Drums, Other)을 다시 병합(Mix)하는 연산보다, 처음부터 분리되어 출력되는 2-Stem 방식이 파일 I/O 및 메모리 관리 측면에서 압도적으로 효율적임.
-        * **파인튜닝 잠재력 (가장 중요한 Insight):** 향후 베이스 특화 모델로 직접 파인튜닝을 진행할 경우, 예측해야 할 타겟 변수를 4개에서 2개로 줄임으로써 모델의 손실 함수(Loss)가 '베이스 음역대'에만 집중하도록 설계할 수 있음. 이는 데이터 차원 축소를 통해 모델의 정밀도를 한 단계 더 끌어올릴 수 있는 구조적 이점임.
 * **최종 의사결정 (Update):**
     * Exp 006의 청감 결과와 Exp 007의 정량적 지표를 종합한 결과, 분리 품질이 동일하다면 시스템 최적화와 향후 확장성(Fine-tuning)에 절대적으로 유리한 **`htdemucs_two_stems` 모델을 최종 베이스 분리 및 MR 제작 파이프라인으로 채택**함.
 * **향후 계획:**
