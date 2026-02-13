@@ -75,12 +75,15 @@ def plot_single_track(audio_path, title="Spectrogram", sr=44100):
     plt.show()
 
 def visualize_metrics(metrics, title="Separation Quality Over Time"):
-    import matplotlib.pyplot as plt
     
     sdr = metrics['SDR']
     sir = metrics['SIR']
     sar = metrics['SAR']
     hop = metrics['hop_sec']
+
+    if sdr is None or sir is None or sar is None:
+        print("Error: Metrics dictionary must contain SDR, SIR, and SAR.")
+        return
     
     time_axis = np.arange(len(sdr)) * hop
     
