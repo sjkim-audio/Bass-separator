@@ -199,6 +199,7 @@ All audio files are stored on external storage (e.g., Google Drive) and can be l
     * **2-Stem 모델의 시스템적 이점 재조명:**
         * **연산 효율성:** 베이스 트랙과 백킹 트랙(MR)을 생성하는 것이 목적일 때, 4-Stem 분리 후 3개의 트랙(Vocals, Drums, Other)을 다시 병합(Mix)하는 연산보다, 처음부터 분리되어 출력되는 2-Stem 방식이 파일 I/O 및 메모리 관리 측면에서 압도적으로 효율적임.
         * **파인튜닝 잠재력 (가장 중요한 Insight):** 향후 베이스 특화 모델로 직접 파인튜닝을 진행할 경우, 예측해야 할 타겟 변수를 4개에서 2개로 줄임으로써 모델의 손실 함수(Loss)가 '베이스 음역대'에만 집중하도록 설계할 수 있음. 이는 데이터 차원 축소를 통해 모델의 정밀도를 한 단계 더 끌어올릴 수 있는 구조적 이점임.
+
 | Model | Median SDR (Overall) | Median SIR (Interference) | Median SAR (Artifacts) |
 | :--- | :---: | :---: | :---: |
 | **htdemucs (Default)** | 18.77 dB | inf dB | 15.68 dB |
