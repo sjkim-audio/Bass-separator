@@ -14,3 +14,7 @@ torchaudio
 
 # Visualization
 matplotlib
+
+# API server
+fastapi
+uvicorn
