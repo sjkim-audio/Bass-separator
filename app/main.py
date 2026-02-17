@@ -1,3 +1,7 @@
+import os
+# 윈도우/아나콘다 환경에서 PyTorch DLL 충돌을 방지하는 설정
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import FileResponse
 import shutil
