@@ -2,7 +2,7 @@
 
 * **Status:** Accepted
 * **Date:** 2026-02-17
-* **Related Documents:** [Algorithm_selection_devlog.md](./docs/Algorithm_selection_devlog.md) (상세 실험 데이터)
+* **Related Documents:** [Algorithm_selection_devlog.md](./docs/Algorithm_selection_devlog.md)
 
 ## 1. Context (배경)
 
