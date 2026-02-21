@@ -1,8 +1,8 @@
-# [ADR-001] 베이스 음원 분리를 위한 AI 모델 및 파이프라인 선정
+# 베이스 음원 분리를 위한 AI 모델 및 파이프라인 선정
 
 * **Status:** Accepted
 * **Date:** 2026-02-17
-* **Related Documents:** [Algorithm_selection_devlog.md](../dev_logs/Algorithm_selection_devlog.md) (상세 실험 데이터)
+* **Related Documents:** [Algorithm_selection_devlog.md](./docs/Algorithm_selection_devlog.md) (상세 실험 데이터)
 
 ## 1. Context (배경)
 
