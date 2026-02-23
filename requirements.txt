@@ -8,9 +8,11 @@ pydub
 
 # Math & Data
 numpy
+pandas
 scipy
 torch
 torchaudio
+torchcrepe
 
 # Visualization
 matplotlib
