@@ -1,0 +1,12 @@
+version: '3.8'
+
+services:
+  api:
+    build: .
+    container_name: bass-separator-api
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./app:/app/app
+      - ./model_cache:/root/.cache/torch/hub/checkpoints
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
