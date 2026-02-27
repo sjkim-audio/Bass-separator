@@ -22,16 +22,13 @@ def clean_octave_errors_smart(f0_array, onset_mask, valid_threshold=12, window_s
     """
     f0_clean = f0_array.copy()
     
-    # 유효한 구간만 처리
     mask = (f0_clean > 0) & (~np.isnan(f0_clean))
     if np.sum(mask) == 0:
         return f0_clean
         
-    # Hz -> MIDI 변환
     midi_notes = np.zeros_like(f0_clean)
     midi_notes[mask] = librosa.hz_to_midi(f0_clean[mask])
     
-    # 이동 중앙값(Rolling Median)으로 전체적인 멜로디 트렌드 파악
     midi_series = pd.Series(midi_notes)
     trend = midi_series.where(mask).rolling(window=window_size, center=True, min_periods=1).median().values
     
@@ -41,16 +38,13 @@ def clean_octave_errors_smart(f0_array, onset_mask, valid_threshold=12, window_s
         if np.isnan(trend[i]): continue
         diff = midi_notes[i] - trend[i]
         
-        # ±1 옥타브 또는 ±2 옥타브 에러 범위 내인지 확인
         is_octave_jump = (10 <= diff <= 14) or (22 <= diff <= 26) or (-14 <= diff <= -10)
         
         if is_octave_jump:
-            # 현재 프레임 근처(±onset_tolerance)에 Onset이 있는지 확인
             start_idx = max(0, i - onset_tolerance)
             end_idx = min(len(onset_mask), i + onset_tolerance + 1)
             is_intentional_attack = np.any(onset_mask[start_idx:end_idx])
             
-            # 의도된 어택(Onset)이 없는 경우에만 기계적 에러로 간주하고 보정 실행
             if not is_intentional_attack:
                 if 10 <= diff <= 14:
                     midi_notes[i] -= 12
@@ -59,7 +53,6 @@ def clean_octave_errors_smart(f0_array, onset_mask, valid_threshold=12, window_s
                 elif -14 <= diff <= -10:
                     midi_notes[i] += 12
 
-    # 보정된 MIDI -> Hz 복구
     f0_clean[mask] = librosa.midi_to_hz(midi_notes[mask])
     return f0_clean
 
@@ -69,17 +62,17 @@ def post_process_refinement(f0, hop_length, sr, min_duration_ms=50):
     """
     f0_clean = f0.copy()
     
-    # 1. High Frequency Cutoff (200Hz 이상 삭제)
+    # 1. High Frequency Cutoff
     f0_clean[f0_clean > 200] = np.nan
 
-    # 2. Quantization (Hz -> MIDI Note 반올림 -> Hz)
+    # 2. Quantization
     valid_mask = ~np.isnan(f0_clean)
     if np.sum(valid_mask) > 0:
         midi_float = librosa.hz_to_midi(f0_clean[valid_mask])
         midi_round = np.round(midi_float)
         f0_clean[valid_mask] = librosa.midi_to_hz(midi_round)
 
-    # 3. Short Note Removal (짧은 잡음 제거)
+    # 3. Short Note Removal
     min_frames = int((min_duration_ms / 1000) * (sr / hop_length))
     
     temp_notes = f0_clean.copy()
@@ -98,26 +91,34 @@ def post_process_refinement(f0, hop_length, sr, min_duration_ms=50):
 # 2. Main Pitch Tracking Function (CREPE)
 # ==================================================================================
 
-def get_f0_crepe_robust(audio, sr, hop_length=160, fmin=40, fmax=500, smooth_kernel=3, chunk_duration=30):
+# [수정] 외부에서 모델 크기와 배치 사이즈를 조절할 수 있도록 파라미터 노출 (기본값: tiny)
+def get_f0_crepe_robust(audio, sr, hop_length=160, fmin=40, fmax=500, smooth_kernel=3, chunk_duration=30, model_capacity='tiny', batch_size=512):
     """
     [Main Pipeline] 프로덕션 환경에 최적화된 베이스 전용 피치 트래커
-    (Pre-processing -> VRAM Safe Chunking -> Onset Detection -> Smart Post-processing)
     """
-    # 1. [Pre] High-pass Filter (35Hz Cutoff for Rumble noise)
+    # 1. [Pre] High-pass Filter
     sos = scipy.signal.butter(4, 35, 'hp', fs=sr, output='sos')
     audio = scipy.signal.sosfilt(sos, audio)
+    
+    # [수정] scipy 필터링 이후 배정밀도(float64)로 부풀려진 배열을 float32로 캐스팅하여 VRAM 최적화
+    audio = audio.astype(np.float32)
 
     # 2. [Pre] Audio Normalization
     if np.max(np.abs(audio)) < 1e-6:
         return np.zeros(len(audio) // hop_length) 
     audio = librosa.util.normalize(audio)
 
-    # 3. Setup Device
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    # 3. [수정] Setup Device (NVIDIA CUDA 및 Apple Silicon MPS 완벽 지원)
+    if torch.cuda.is_available():
+        device = 'cuda'
+    elif torch.backends.mps.is_available():
+        device = 'mps'
+    else:
+        device = 'cpu'
+        print("⚠️ 경고: GPU가 감지되지 않아 연산이 매우 느려질 수 있습니다.")
     
-    # 4. [Inference] CREPE Inference (VRAM-Safe Chunking)
+    # 4. [Inference] CREPE Inference
     chunk_samples = int(chunk_duration * sr)
-    # 프레임 밀림 현상 방지를 위해 chunk_samples를 hop_length의 배수로 정렬
     chunk_samples -= (chunk_samples % hop_length) 
     total_samples = len(audio)
     
@@ -128,45 +129,41 @@ def get_f0_crepe_robust(audio, sr, hop_length=160, fmin=40, fmax=500, smooth_ker
         end_idx = min(start_idx + chunk_samples, total_samples)
         audio_chunk = audio[start_idx:end_idx]
         
-        # 마지막 청크가 1024 샘플 미만일 경우 패딩 처리 (CREPE 내부 에러 방지)
         if len(audio_chunk) < 1024:
             pad_len = 1024 - len(audio_chunk)
             audio_chunk = np.pad(audio_chunk, (0, pad_len), mode='constant')
 
-        audio_tensor = torch.tensor(audio_chunk).float().unsqueeze(0).to(device)
+        audio_tensor = torch.tensor(audio_chunk).unsqueeze(0).to(device)
         
-        # 서버 VRAM 부하를 평탄화하기 위해 batch_size를 256으로 하향 조정
+        # [수정] model_capacity 및 batch_size 변수 적용
         f0_chunk, conf_chunk = torchcrepe.predict(
             audio_tensor,
             sr,
             hop_length=hop_length,
             fmin=fmin,
             fmax=fmax,
-            model='full',
+            model=model_capacity,
             decoder=torchcrepe.decode.argmax, 
             return_periodicity=True,
             device=device,
-            batch_size=256 
+            batch_size=batch_size 
         )
         
         f0_list.append(f0_chunk.squeeze().cpu().numpy())
         confidence_list.append(conf_chunk.squeeze().cpu().numpy())
         
-        # 명시적인 VRAM 가비지 컬렉션 수행
         del audio_tensor, f0_chunk, conf_chunk
         if device == 'cuda':
             torch.cuda.empty_cache()
             
-    # 분할된 청크 결과 병합
     f0 = np.concatenate(f0_list)
     confidence = np.concatenate(confidence_list)
     
-    # 패딩으로 인해 늘어난 프레임 길이를 원본 기대 길이로 정확히 절사
     expected_frames = 1 + int(total_samples // hop_length)
     f0 = f0[:expected_frames]
     confidence = confidence[:expected_frames]
 
-    # 5. [Post] Onset Detection (어택 지점 추출)
+    # 5. [Post] Onset Detection
     onset_env = librosa.onset.onset_strength(y=audio, sr=sr, hop_length=hop_length)
     onset_frames = librosa.onset.onset_detect(onset_envelope=onset_env, sr=sr, hop_length=hop_length)
     
@@ -174,20 +171,18 @@ def get_f0_crepe_robust(audio, sr, hop_length=160, fmin=40, fmax=500, smooth_ker
     valid_onsets = onset_frames[onset_frames < len(f0)]
     onset_mask[valid_onsets] = True
 
-    # 6. [Post] Median Filter (Spike Removal)
-    # NaN 결측치가 없는 연속된 상태에서 스파이크를 먼저 평탄화
+    # 6. [Post] Median Filter
     if smooth_kernel > 1:
         f0_series = pd.Series(f0)
         f0 = f0_series.rolling(window=smooth_kernel, center=True, min_periods=1).median().values
 
-    # 7. [Post] Smart Octave Error Correction (어택 기반 예외 처리)
+    # 7. [Post] Smart Octave Error Correction
     f0 = clean_octave_errors_smart(f0, onset_mask, window_size=7, onset_tolerance=2)
 
     # 8. [Post] Confidence Masking
-    # 보정 연산이 모두 끝난 후, 모델의 신뢰도가 낮은 구간만 마스킹 처리
     f0[confidence < 0.15] = np.nan 
 
-    # 9. [Post] Final Refinement (Quantization & 200Hz Cutoff)
+    # 9. [Post] Final Refinement
     f0 = post_process_refinement(f0, hop_length, sr)
 
     return f0
@@ -214,7 +209,6 @@ def plot_piano_roll(f0_array, sr, hop_length):
     plt.scatter(times[valid_mask], midi_notes[valid_mask], 
                 c='dodgerblue', s=15, alpha=0.7, marker='s', edgecolors='none')
 
-    # Y축 범위 자동 조절
     min_note_val = int(np.floor(np.min(midi_notes[valid_mask])))
     max_note_val = int(np.ceil(np.max(midi_notes[valid_mask])))
     
@@ -252,7 +246,6 @@ def save_to_midi(f0_array, sr, hop_length, output_path, velocity=100):
         is_valid = (not np.isnan(hz)) and (hz > 0)
         midi_note = int(round(librosa.hz_to_midi(hz))) if is_valid else None
         
-        # Note Grouping Logic
         if current_note is not None:
             if (not is_valid) or (midi_note != current_note):
                 note = pretty_midi.Note(velocity=velocity, pitch=current_note, start=start_time, end=time)
@@ -283,8 +276,9 @@ def run_pipeline(audio_path, output_midi="output.mid"):
     print(f"📂 Loading: {audio_path}")
     y, sr = librosa.load(audio_path, sr=16000)
     
-    print("🚀 Running Pitch Tracking...")
-    f0 = get_f0_crepe_robust(y, sr, hop_length=160)
+    # [수정] 빠른 테스트를 위해 tiny 모델 사용 명시
+    print("🚀 Running Pitch Tracking (Tiny Model)...")
+    f0 = get_f0_crepe_robust(y, sr, hop_length=160, model_capacity='tiny', batch_size=512)
     
     print("📊 Visualizing...")
     plot_piano_roll(f0, sr=16000, hop_length=160)
