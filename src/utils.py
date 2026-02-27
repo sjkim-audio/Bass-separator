@@ -1,47 +1,7 @@
 import os
-import shuti
+import shutil
 import json
 import numpy as np
-
-def save_experiment_results(metrics, exp_id, base_dir="/content/drive/MyDrive/Bass_separator"):
-    """
-    실험 결과(수치 데이터)를 JSON으로 저장하고, 
-    시각화 이미지를 저장할 경로를 반환합니다.
-    """
-    # 1. 저장할 폴더 경로 설정 및 생성
-    assets_dir = os.path.join(base_dir, "assets")
-    results_dir = os.path.join(base_dir, "results")
-    
-    os.makedirs(assets_dir, exist_ok=True)
-    os.makedirs(results_dir, exist_ok=True)
-    
-    # 2. Numpy 배열을 JSON 저장이 가능한 형태로 변환
-    serializable_metrics = {}
-    for key, value in metrics.items():
-        if isinstance(value, np.ndarray):
-            serializable_metrics[key] = value.tolist()
-        else:
-            serializable_metrics[key] = value
-            
-    # 중앙값(Median) 요약 데이터도 JSON에 함께 기록
-    summary = {
-        "SDR_median": float(np.nanmedian(metrics.get('SDR', [0]))),
-        "SIR_median": float(np.nanmedian(metrics.get('SIR', [0]))),
-        "SAR_median": float(np.nanmedian(metrics.get('SAR', [0])))
-    }
-    serializable_metrics["summary_statistics"] = summary
-    
-    # 3. JSON 파일로 저장 (.csv 대신 구조적 데이터 관리에 용이)
-    json_path = os.path.join(results_dir, f"{exp_id}_metrics.json")
-    with open(json_path, 'w', encoding='utf-8') as f:
-        json.dump(serializable_metrics, f, indent=4)
-        
-    print(f"Info: 수치 데이터 저장 완료 -> {json_path}")
-    
-    # 4. 시각화 함수에 전달할 이미지 저장 경로 반환
-    img_save_path = os.path.join(assets_dir, f"{exp_id}_plot.png")
-    return img_save_path
-
 
 def load_data_from_drive(drive_path, local_path="./dataset", force_update=False):
     """
