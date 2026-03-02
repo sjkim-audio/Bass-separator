@@ -1,4 +1,4 @@
-# 베이스 음원 분리를 위한 AI 모델 및 파이프라인 선정 (Revised)
+# [ADR-001] 베이스 음원 분리를 위한 AI 모델 및 파이프라인 선정
 
 * **Status:** Accepted (Supersedes previous decision dated 2026-02-17)
 * **Date:** 2026-02-28
