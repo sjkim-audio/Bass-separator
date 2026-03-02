@@ -18,7 +18,7 @@
 
 ### Step 1: Source Separation
 - **Model:** `Demucs (htdemucs)`
-- **Optimization:** `--two-stems=bass` 모델이 연산 속도와 실성능(베이스 추출 및 MR 제작 목적) 면에서 프로젝트의 목표에 가장 부합한다고 판단하여 2-Stem 구조로 회귀 및 확정.
+- **Optimization:** `--two-stems=bass` 모델이 연산 속도와 실성능(베이스 추출 및 MR 제작 목적) 면에서 프로젝트의 목표에 가장 부합한다고 판단하여 2-Stem 구조로 회귀. 그러나 --two-stems 옵션의 VRAM 연산 착시와 킥 드럼 블리딩(Bleeding) 한계를 극복하기 위해, 기본 4-Stem 모델(htdemucs)을 유지하고 CPU 단에서 나머지 트랙을 합산하는 후처리 방식으로 최종 아키텍처 확정. (자세한 논리는 ADR-001 참조)
 - **Notebook:** `01_Melody_Extraction...`, `02_tracking_separated...`
 
 ### Step 2: Audio Pre-processing (Signal Cleaning)
