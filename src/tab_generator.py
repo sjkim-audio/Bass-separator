@@ -50,38 +50,79 @@ class BassTabGenerator:
             return None
         return min(candidates, key=lambda x: x[1])
 
-    def parse_f0_to_events(self, f0_array: np.ndarray) -> None:
+    def parse_f0_to_events(self, f0_array: np.ndarray, min_duration_frames: int = 5, tolerance_frames: int = 3) -> None:
         """
-        [성능 최적화] 정제 완료된 f0_array의 변화량만 추적하여 노트를 파싱합니다.
-        주의: 현재 로직은 쉼표(NaN) 없이 동일한 음이 연속 연주될 경우 하나의 긴 음으로 병합됩니다.
-             (추후 Phase 3의 Note Quantization 단계에서 해결 예정)
+        [고도화] 상태 머신을 활용한 노트 그룹핑 및 디바운싱 로직.
+        - min_duration_frames: 유효한 음표로 인정받기 위한 최소 유지 시간 (예: 5프레임 = 0.05초. 그 미만은 노이즈로 무시)
+        - tolerance_frames: 음표 중간에 발생하는 찰나의 NaN(끊김)을 무시하고 음을 이어주는 관용도 (예: 3프레임)
         """
         self.events = []
         frame_time = self.hop_length / self.sr
+        
         current_note = None
+        note_start_frame = 0
+        blank_counter = 0
 
-        for i, hz in enumerate(f0_array):
-            is_valid = (not np.isnan(hz)) and (hz > 0)
-            midi_note = int(round(librosa.hz_to_midi(hz))) if is_valid else None
+        # 1. 1차 양자화: 유효한 주파수를 MIDI 정수로 일괄 변환 (NaN은 유지)
+        valid_mask = (f0_array > 0) & (~np.isnan(f0_array))
+        midi_array = np.full(len(f0_array), np.nan)
+        midi_array[valid_mask] = np.round(librosa.hz_to_midi(f0_array[valid_mask]))
 
-            # 새로운 노트 시작점 감지
-            if is_valid and midi_note != current_note:
-                candidates = self.get_fret_candidates(hz)
-                pos = self.choose_fret_greedy(candidates)
+        # 2. 상태 머신(State Machine) 순회
+        for i, midi_val in enumerate(midi_array):
+            is_valid = not np.isnan(midi_val)
+            
+            if is_valid:
+                midi_note = int(midi_val)
+                blank_counter = 0  # 유효한 음이 들어오면 결측치 카운터 초기화
+                
+                if current_note is None:
+                    # A. 완전히 새로운 음표의 시작
+                    current_note = midi_note
+                    note_start_frame = i
+                    
+                elif current_note != midi_note:
+                    # B. 음정이 변경됨 (비브라토 노이즈일 수도 있고 진짜 변경일 수도 있음)
+                    duration = i - note_start_frame
+                    
+                    # 이전 음표가 '최소 유지 시간'을 충족했을 때만 진짜 음표로 등록 (노이즈 필터링)
+                    if duration >= min_duration_frames:
+                        self._register_event(current_note, note_start_frame * frame_time)
+                    
+                    # 새로운 음표로 상태 전환
+                    current_note = midi_note
+                    note_start_frame = i
+            else:
+                # C. 결측치(NaN) 발생 구역
+                blank_counter += 1
+                
+                # 결측치가 관용도(tolerance)를 초과하면 진짜로 연주가 멈춘 것으로 판단 (Rest)
+                if current_note is not None and blank_counter >= tolerance_frames:
+                    duration = (i - blank_counter) - note_start_frame
+                    
+                    if duration >= min_duration_frames:
+                        self._register_event(current_note, note_start_frame * frame_time)
+                    
+                    current_note = None  # 상태 초기화
+                    
+        # 3. 배열 끝에 도달했을 때 마지막 연주 중이던 음표 처리
+        if current_note is not None:
+            duration = len(midi_array) - note_start_frame
+            if duration >= min_duration_frames:
+                self._register_event(current_note, note_start_frame * frame_time)
 
-                if pos:
-                    self.events.append({
-                        'time': i * frame_time,
-                        'string_idx': pos[0],
-                        'fret': pos[1],
-                        'midi_note': midi_note
-                    })
-                current_note = midi_note
-
-            # 음이 끊기면 현재 노트 초기화 (다음 노트 어택을 잡기 위함)
-            elif not is_valid:
-                current_note = None
-
+    def _register_event(self, midi_note: int, time_sec: float) -> None:
+        """내부 헬퍼 메서드: 이벤트를 배열에 추가 (임시 운지법 사용)"""
+        candidates = self.get_fret_candidates(librosa.midi_to_hz(midi_note))
+        pos = self.choose_fret_greedy(candidates)
+        
+        if pos:
+            self.events.append({
+                'time': time_sec,
+                'string_idx': pos[0],
+                'fret': pos[1],
+                'midi_note': midi_note
+            })
     def display_tab(self, chars_per_line: int = 80) -> None:
         """
         [UI 안정화] 수집된 이벤트를 가로형 텍스트 타브 악보로 출력합니다.
