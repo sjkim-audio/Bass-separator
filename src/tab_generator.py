@@ -2,11 +2,125 @@ import numpy as np
 import librosa
 from typing import List, Tuple, Dict, Optional, Any
 
-"""
-Automatic Bass Transcription - Tablature Generation Module (Baseline)
-이 모듈은 피치 트래킹 결과를 기반으로 가로형 ASCII 타브 악보를 렌더링합니다.
-추후 Phase 3(Viterbi HMM)에서 운지법 최적화 디코더가 이 클래스를 확장할 예정입니다.
-"""
+class ViterbiSmartFingering:
+    def __init__(self,
+                 weight_fret: float = 1.0,
+                 weight_string: float = 2.0,
+                 shift_threshold: int = 3,
+                 shift_penalty: float = 10.0,
+                 open_string_penalty: float = 2.5):
+        """
+        시간 제약 및 톤 일관성이 추가된 Advanced Viterbi 디코더
+        """
+        self.w_f = weight_fret
+        self.w_s = weight_string
+        self.shift_thresh = shift_threshold
+        self.shift_penalty = shift_penalty
+        self.open_penalty = open_string_penalty
+
+    def _calculate_transition_cost(self, pos1: Tuple[int, int], pos2: Tuple[int, int], dt: float) -> float:
+        s1, f1 = pos1
+        s2, f2 = pos2
+
+        # 시간 가중치 계산 (최소 0.05초 보장)
+        safe_dt = max(dt, 0.05)
+        time_multiplier = 1.0 / safe_dt
+
+        # 1. 수직 이동 비용 (줄 넘나들기)
+        cost_s = self.w_s * abs(s2 - s1)
+
+        # 2. 하이 프렛 자체 페널티 (Fret Height Penalty)
+        cost_height = 0.5 * f2
+
+        # 3. 개방현 관련 및 수평 이동 비용 계산
+        cost_open = 0.0
+        cost_f = 0.0
+
+        if f1 == 0 and f2 != 0:
+            # 개방현에서 닫힌 현으로 이동: 도착 프렛(f2)에 비례하는 거리를 가상으로 계산
+            cost_f = self.w_f * f2 * 0.5 * time_multiplier
+
+        elif f1 != 0 and f2 == 0:
+            # 닫힌 현에서 개방현으로 진입 (톤 변화 이질감 페널티)
+            cost_open = self.open_penalty
+
+        elif f1 != 0 and f2 != 0:
+            # 일반적인 프렛 이동
+            dist_f = abs(f2 - f1)
+            cost_f = self.w_f * dist_f * time_multiplier
+
+            # 손가락 커버 범위를 벗어나는 포지션 이동 시 기하급수적 페널티
+            if dist_f > self.shift_thresh:
+                cost_f += self.shift_penalty * ((dist_f - self.shift_thresh) ** 2) * time_multiplier
+
+        # 4. 동음 유지 보너스 (플래핑 억제)
+        cost_stay = -2.0 if pos1 == pos2 else 0.0
+
+        return cost_s + cost_height + cost_open + cost_f + cost_stay
+
+    def decode(self, events: List[Dict[str, Any]], get_candidates_fn) -> List[Dict[str, Any]]:
+        if not events:
+            return []
+
+        # 1. State Space 구성
+        state_sequence = []
+        for event in events:
+            hz = librosa.midi_to_hz(event['midi_note']) if event['midi_note'] else 0
+            candidates = get_candidates_fn(hz)
+            if not candidates:
+                candidates = [(0, 0)]
+            state_sequence.append(candidates)
+
+        n_steps = len(state_sequence)
+
+        # 2. DP 테이블 초기화
+        dp = [np.zeros(len(states)) for states in state_sequence]
+        backpointers = [np.zeros(len(states), dtype=int) for states in state_sequence]
+
+        # 3. Forward Pass
+        for t in range(1, n_steps):
+            prev_states = state_sequence[t-1]
+            curr_states = state_sequence[t]
+
+            # 두 노트 사이의 시간 계산 (단위: 초)
+            dt = events[t]['time'] - events[t-1]['time']
+
+            for curr_idx, curr_state in enumerate(curr_states):
+                min_cost = float('inf')
+                best_prev_idx = -1
+
+                for prev_idx, prev_state in enumerate(prev_states):
+                    trans_cost = self._calculate_transition_cost(prev_state, curr_state, dt)
+                    total_cost = dp[t-1][prev_idx] + trans_cost
+
+                    if total_cost < min_cost:
+                        min_cost = total_cost
+                        best_prev_idx = prev_idx
+
+                dp[t][curr_idx] = min_cost
+                backpointers[t][curr_idx] = best_prev_idx
+
+        # 4. Backward Pass
+        best_last_idx = int(np.argmin(dp[-1]))
+        best_path_indices = [best_last_idx]
+
+        for t in range(n_steps - 1, 0, -1):
+            best_idx = backpointers[t][best_path_indices[-1]]
+            best_path_indices.append(best_idx)
+
+        best_path_indices.reverse()
+
+        # 5. 최적화 결과 병합
+        optimized_events = []
+        for t, event in enumerate(events):
+            opt_string, opt_fret = state_sequence[t][best_path_indices[t]]
+            opt_event = event.copy()
+            opt_event['string_idx'] = opt_string
+            opt_event['fret'] = opt_fret
+            optimized_events.append(opt_event)
+
+        return optimized_events
+
 
 class BassTabGenerator:
     def __init__(self, sr: int = 16000, hop_length: int = 160):
@@ -23,10 +137,6 @@ class BassTabGenerator:
         self.events: List[Dict[str, Any]] = []
 
     def get_fret_candidates(self, hz: float) -> List[Tuple[int, int]]:
-        """
-        [확장성 설계] 주파수를 받아 가능한 '모든' 운지 위치 반환.
-        향후 Viterbi HMM 모델이 이 후보군들을 상태(State) 공간으로 활용합니다.
-        """
         if hz is None or hz == 0 or np.isnan(hz):
             return []
 
@@ -42,10 +152,6 @@ class BassTabGenerator:
         return candidates
 
     def choose_fret_greedy(self, candidates: List[Tuple[int, int]]) -> Optional[Tuple[int, int]]:
-        """
-        [임시 로직] 가장 낮은 프렛을 우선 선택 (Lowest Fret Priority)
-        Viterbi 알고리즘 개발 전까지 사용할 베이스라인 디코더입니다.
-        """
         if not candidates:
             return None
         return min(candidates, key=lambda x: x[1])
@@ -53,8 +159,6 @@ class BassTabGenerator:
     def parse_f0_to_events(self, f0_array: np.ndarray, min_duration_frames: int = 5, tolerance_frames: int = 3) -> None:
         """
         [고도화] 상태 머신을 활용한 노트 그룹핑 및 디바운싱 로직.
-        - min_duration_frames: 유효한 음표로 인정받기 위한 최소 유지 시간 (예: 5프레임 = 0.05초. 그 미만은 노이즈로 무시)
-        - tolerance_frames: 음표 중간에 발생하는 찰나의 NaN(끊김)을 무시하고 음을 이어주는 관용도 (예: 3프레임)
         """
         self.events = []
         frame_time = self.hop_length / self.sr
@@ -82,28 +186,25 @@ class BassTabGenerator:
                     note_start_frame = i
                     
                 elif current_note != midi_note:
-                    # B. 음정이 변경됨 (비브라토 노이즈일 수도 있고 진짜 변경일 수도 있음)
+                    # B. 음정이 변경됨
                     duration = i - note_start_frame
                     
-                    # 이전 음표가 '최소 유지 시간'을 충족했을 때만 진짜 음표로 등록 (노이즈 필터링)
                     if duration >= min_duration_frames:
                         self._register_event(current_note, note_start_frame * frame_time)
                     
-                    # 새로운 음표로 상태 전환
                     current_note = midi_note
                     note_start_frame = i
             else:
                 # C. 결측치(NaN) 발생 구역
                 blank_counter += 1
                 
-                # 결측치가 관용도(tolerance)를 초과하면 진짜로 연주가 멈춘 것으로 판단 (Rest)
                 if current_note is not None and blank_counter >= tolerance_frames:
                     duration = (i - blank_counter) - note_start_frame
                     
                     if duration >= min_duration_frames:
                         self._register_event(current_note, note_start_frame * frame_time)
                     
-                    current_note = None  # 상태 초기화
+                    current_note = None
                     
         # 3. 배열 끝에 도달했을 때 마지막 연주 중이던 음표 처리
         if current_note is not None:
@@ -123,11 +224,8 @@ class BassTabGenerator:
                 'fret': pos[1],
                 'midi_note': midi_note
             })
+
     def display_tab(self, chars_per_line: int = 80) -> None:
-        """
-        [UI 안정화] 수집된 이벤트를 가로형 텍스트 타브 악보로 출력합니다.
-        긴 휴지기(Rest)에 의한 무한 대시(-) 출력 및 화면 찢어짐을 방지합니다.
-        """
         if not self.events:
             print("⚠️ 시각화할 노트 이벤트가 없습니다.")
             return
@@ -154,9 +252,9 @@ class BassTabGenerator:
             if len(line_buffers[0]) + added_length > chars_per_line:
                 self._print_system(line_buffers)
                 line_buffers = ["G |", "D |", "A |", "E |"]
-                spacer = "-" * 2  # 새 줄의 첫 음표 간격 초기화
+                spacer = "-" * 2  
 
-            # 4개 현 버퍼 채우기 (타겟 줄에는 프렛 번호, 나머지 줄에는 대시)
+            # 4개 현 버퍼 채우기
             for i in range(4):
                 current_string_target = 3 - i
                 if current_string_target == string_idx:
@@ -171,7 +269,31 @@ class BassTabGenerator:
             self._print_system(line_buffers)
 
     def _print_system(self, buffers: List[str]) -> None:
-        """4줄 버퍼를 출력하는 내부 유틸리티 메서드"""
         for line in buffers:
             print(line + "-|")
-        print("") # 시스템 간 여백
+        print("")
+
+    def optimize_fingering(self, 
+                           weight_fret: float = 1.0, 
+                           weight_string: float = 2.0, 
+                           shift_threshold: int = 3, 
+                           shift_penalty: float = 10.0,
+                           open_string_penalty: float = 2.5) -> None:
+        """
+        내부 events 배열을 Viterbi 알고리즘을 사용해 최적화된 운지로 덮어씁니다.
+        """
+        if not self.events:
+            print("⚠️ 최적화할 이벤트가 없습니다. 먼저 parse_f0_to_events를 실행하세요.")
+            return
+            
+        decoder = ViterbiSmartFingering(
+            weight_fret=weight_fret,
+            weight_string=weight_string,
+            shift_threshold=shift_threshold,
+            shift_penalty=shift_penalty,
+            open_string_penalty=open_string_penalty
+        )
+        
+        # 최적화 수행 및 내부 상태 업데이트
+        self.events = decoder.decode(self.events, self.get_fret_candidates)
+        print("✅ Viterbi 운지법 최적화 완료.")
