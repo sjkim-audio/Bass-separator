@@ -1,6 +1,7 @@
 import numpy as np
 import librosa
-from typing import List, Dict, Any
+from typing import List
+from models.events import NoteEvent
 
 class RhythmicQuantizer:
     def __init__(self, sr: int, hop_length: int):
@@ -17,11 +18,16 @@ class RhythmicQuantizer:
         self.grid_interval_sec = 15.0 / self.bpm if self.bpm > 0 else 0.0
         return self.bpm
 
-    def quantize_events(self, events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def quantize_events(self, events: List[NoteEvent]) -> List[NoteEvent]:
         if self.grid_interval_sec <= 0: return events
+        
         quantized_dict = {}
         for event in events:
-            grid_idx = int(np.round(event['time'] / self.grid_interval_sec))
-            event.update({'grid_index': grid_idx, 'quantized_time': grid_idx * self.grid_interval_sec})
-            quantized_dict[grid_idx] = event
-        return sorted(list(quantized_dict.values()), key=lambda x: x['grid_index'])
+            grid_idx = int(np.round(event.time / self.grid_interval_sec))
+            # 충돌 시 덮어쓰기 로직 (나중 이벤트 우선)
+            quantized_dict[grid_idx] = event.update(
+                grid_index=grid_idx, 
+                quantized_time=grid_idx * self.grid_interval_sec
+            )
+            
+        return sorted(list(quantized_dict.values()), key=lambda x: x.grid_index)
