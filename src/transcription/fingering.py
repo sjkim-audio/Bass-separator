@@ -1,10 +1,10 @@
 import numpy as np
 import librosa
-from typing import List, Tuple, Dict, Any
+from typing import List, Tuple
+from models.events import NoteEvent
 
 class ViterbiSmartFingering:
-    def __init__(self, weight_fret=1.0, weight_string=2.0, shift_threshold=3, 
-                 shift_penalty=10.0, open_string_penalty=2.5):
+    def __init__(self, weight_fret=1.0, weight_string=2.0, shift_threshold=3, shift_penalty=10.0, open_string_penalty=2.5):
         self.w_f = weight_fret
         self.w_s = weight_string
         self.shift_thresh = shift_threshold
@@ -32,29 +32,35 @@ class ViterbiSmartFingering:
 
         return cost_s + cost_height + cost_open + cost_f + (-2.0 if pos1 == pos2 else 0.0)
 
-    def decode(self, events: List[Dict[str, Any]], get_candidates_fn) -> List[Dict[str, Any]]:
+    def decode(self, events: List[NoteEvent], get_candidates_fn) -> List[NoteEvent]:
         if not events: return []
         state_sequence = []
         for event in events:
-            hz = librosa.midi_to_hz(event['midi_note']) if event['midi_note'] else 0
-            candidates = get_candidates_fn(hz) or [(0, 0)]
-            state_sequence.append(candidates)
+            hz = librosa.midi_to_hz(event.midi_note) if event.midi_note else 0
+            candidates = get_candidates_fn(hz)
+            state_sequence.append(candidates if candidates else [(0, 0)])
 
         n_steps = len(state_sequence)
         dp = [np.zeros(len(states)) for states in state_sequence]
         backpointers = [np.zeros(len(states), dtype=int) for states in state_sequence]
 
         for t in range(1, n_steps):
-            dt = events[t]['time'] - events[t-1]['time']
+            dt = events[t].time - events[t-1].time
             for curr_idx, curr_state in enumerate(state_sequence[t]):
                 costs = [dp[t-1][p_idx] + self._calculate_transition_cost(p_state, curr_state, dt)
                          for p_idx, p_state in enumerate(state_sequence[t-1])]
                 dp[t][curr_idx] = np.min(costs)
                 backpointers[t][curr_idx] = np.argmin(costs)
 
-        curr_idx = np.argmin(dp[-1])
-        for t in range(n_steps - 1, -1, -1):
-            s_idx, f_idx = state_sequence[t][curr_idx]
-            events[t].update({'string_idx': s_idx, 'fret': f_idx})
+        curr_idx = int(np.argmin(dp[-1]))
+        best_path = [curr_idx]
+        for t in range(n_steps - 1, 0, -1):
             curr_idx = backpointers[t][curr_idx]
-        return events
+            best_path.append(curr_idx)
+        best_path.reverse()
+
+        # 새로운 객체를 생성하여 반환 (불변성 유지)
+        return [
+            event.update(string_idx=state_sequence[t][best_path[t]][0], fret=state_sequence[t][best_path[t]][1])
+            for t, event in enumerate(events)
+        ]
