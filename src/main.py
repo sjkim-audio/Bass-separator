@@ -48,6 +48,8 @@ def separate_bass_track(input_path: str, output_dir: str = "separated") -> str:
 def run_transcription_pipeline(bass_audio_path: str):
     """
     [Phase 2~4] 분리된 베이스 오디오를 기반 타브 악보를 생성.
+    """
+    
     sr, hop_length = 16000, 160
     
     print(f"📂 Loading audio for transcription...")
