@@ -37,3 +37,7 @@
 * **Positive:** * OS 충돌로 인한 서버 다운 현상이 완벽히 해결되었으며, 추후 클라우드 배포를 위한 인프라적 뼈대가 완성되었다.
     * 모델 가중치 파일 다운로드 경로를 Docker Volume으로 로컬 시스템(`model_cache`)과 공유하여, 컨테이너 재시작 시 발생하는 초기 로딩 시간을 대폭 단축했다.
 * **Negative & Mitigation:** * Docker(WSL2 백엔드) 구동 자체가 호스트 PC의 RAM을 상당히 점유하는 오버헤드가 발생한다. (로컬 PC 환경에 맞춰 `.wslconfig`를 통해 리눅스 엔진의 최대 메모리를 제한하는 방식으로 대응함)
+
+## 5. Addendum (2026-03-06)
+* **Event Loop Blocking Issue Resolved:** 초기 구현 시 `app/main.py`의 엔드포인트가 `async def`로 선언되어, 문서 3.1항의 의도와 달리 Uvicorn의 메인 이벤트 루프를 블로킹하는 치명적 결함이 발견되었다. 이를 일반 `def`로 수정하여 Starlette의 외부 스레드풀(Threadpool)로 추론 연산을 정상 오프로딩하도록 교정 완료함.
+* **Storage Leak Prevention:** `BackgroundTasks`를 도입하여 API 응답 직후 임시 파일(WAV)이 디스크에서 안전하게 삭제되도록 조치함.
