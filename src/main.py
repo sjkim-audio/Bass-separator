@@ -10,7 +10,7 @@ from transcription.tracker import get_f0_crepe_robust
 from transcription.parser import PitchParser
 from transcription.fingering import ViterbiSmartFingering
 from transcription.quantization import RhythmicQuantizer
-from utils.renderer import TabRenderer
+from renderers.tab_renderer import TabRenderer
 
 warnings.filterwarnings('ignore', category=UserWarning)
 
