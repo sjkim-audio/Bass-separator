@@ -44,9 +44,9 @@
 - **Viterbi HMM Decoder:** 기존의 탐욕(Greedy) 기반 1차원 매핑을 은닉 마르코프 모델(HMM)로 대체. 동적 계획법(DP)을 통해 전체 연주의 '생체역학적 이동 비용(Cost)'을 최소화하는 최적 경로를 추론.
 
 ### Step 6: Rhythmic Quantization & Pipeline Architecture (Phase 4)
-- **BPM Tracking & PLP:** 베이스 라인의 빈번한 당김음(Syncopation)으로 인한 정박(Downbeat) 오판을 방지하기 위해, 400Hz 이하 저주파수 대역의 Onset Envelope를 추출하고 PLP(Predominant Local Pulse)를 적용하여 맥박(Pulse) 주기성을 강화.
-- **Grid Snapping (Euclidean Distance):** 추정된 BPM을 기반으로 16분음표 길이의 시간 격자(Time Grid, $\Delta t$)를 산출. 각 노트의 물리적 발생 시간($t_i$)을 유클리드 거리가 최소화되는 수식($k_i^* = \text{round}(t_i / \Delta t)$)을 통해 가장 가까운 16분음표 격자에 강제 할당(Quantize).
-- **Immutable Pipeline (Layered Architecture):** 가변 딕셔너리로 인한 상태 오염과 God Object 안티패턴을 해결하기 위해, `NoteEvent` 불변 데이터 클래스(Dataclass, `frozen=True`)를 도입. `Parser` $\rightarrow$ `Fingering` $\rightarrow$ `Quantization` $\rightarrow$ `Renderer` 로 이어지는 단방향 함수형 파이프라인으로 디렉토리 및 모듈을 전면 재설계.
+- **BPM Tracking & PLP:** 베이스 라인의 빈번한 당김음(Syncopation)으로 인한 정박(Downbeat) 오판을 방지하기 위해, 400Hz 이하 저주파수 대역의 Onset Envelope를 추출하고 PLP(Predominant Local Pulse)를 적용하여 맥박(Pulse) 주기성을 강화. 극단적 엇박으로 모델이 BPM을 탐지하지 못할 경우를 대비해 120 BPM Fallback 안전장치를 도입.
+- **Grid Snapping (Euclidean Distance):** 추정된 BPM을 기반으로 16분음표 길이의 시간 격자(Time Grid, $\Delta t$)를 산출. 각 노트의 물리적 발생 시간($t_i$)을 유클리드 거리가 최소화되는 수식($k_i^* = \text{round}(t_i / \Delta t)$)을 통해 가장 가까운 16분음표 격자에 강제 할당(Quantize). 동일 격자 내 다중 노트 소실 방지를 위해 리스트(List) 기반 누적 아키텍처 적용.
+- **Immutable Pipeline (Layered Architecture):** 가변 딕셔너리로 인한 상태 오염과 God Object 안티패턴을 해결하기 위해, `NoteEvent` 불변 데이터 클래스(Dataclass, `frozen=True`)를 도입. 모듈 네임스페이스 충돌을 방지하기 위해 표현 계층(Presentation Layer)을 `renderers/` 패키지로 완전히 분리하여 `Parser` $\rightarrow$ `Fingering` $\rightarrow$ `Quantization` $\rightarrow$ `Renderer` 로 이어지는 단방향 함수형 파이프라인 완성 (`v1.0.0-alpha`).
 
 ---
 
@@ -80,9 +80,11 @@ E |---------------------------------------------3--|---------3-----4-----3------
 | **기형적 수직 도약 (String Skipping)** | 무조건 가장 얇은 줄(Lowest Fret)을 우선 선택하는 탐욕(Greedy) 알고리즘의 한계. | 손의 수평/수직 이동 생체역학적 비용(Cost)을 계산하는 **Viterbi HMM 기반 동적 계획법(DP)** 디코더를 도입하여 전역 최적화 수행. |
 | **단선율 화음 오류 (False Polyphony)** | 어택 순간의 찰나의 배음 스파이크나 미세한 피치 흔들림이 타브에 독립된 다중 노트(속주)로 오인 렌더링됨. | **상태 머신(State Machine) 기반 디바운싱(Debouncing)** 로직을 구현하여 최소 유지 시간 미만의 노이즈를 필터링하고 인접한 노트를 하나로 Grouping. |
 | **Phase 4 (Quantization & Architecture)** | | |
-| **Syncopation BPM Error** | 베이스 특유의 엇박과 당김음으로 인해 표준 Beat Tracking 알고리즘이 템포를 잘못 짚음. | Onset Envelope 추출 시 **fmax를 400Hz로 제한**하고, **PLP (Predominant Local Pulse)** 곡선을 한 번 더 씌워 거시적인 박자 주기성을 강제로 끌어올림. |
+| **Syncopation BPM Error** | 베이스 특유의 엇박과 당김음으로 인해 표준 Beat Tracking 알고리즘이 템포를 잘못 짚거나 산출에 실패함(0 반환). | Onset Envelope 추출 시 **fmax를 400Hz로 제한** 및 **PLP** 곡선 적용. 실패 시 파이프라인 정지를 막기 위한 **120 BPM Fallback** 안전장치 추가. |
 | **가독성 붕괴 및 물리적 시간 종속성** | 기존 악보는 대시(`-`) 개수가 물리적 시간 비율에 비례하여 마디(Measure) 구분이 불가능하고 가독성이 떨어짐. | 16분음표 단위로 시간을 이산화(Discretization)하는 **유클리드 거리 최소화(Grid Snapping)** 수학 모델 도입. 마디 단위(`|`) 출력을 지원하는 정량적 렌더러 분리. |
-| **Data Corruption & Tight Coupling** | 하나의 `Generator` 클래스가 파싱, Viterbi 연산, 양자화를 모두 수행하며 딕셔너리 리스트를 직접 수정(In-place)하여 디버깅 불능 상태 초래. | 객체 상태의 변이를 원천 차단하는 `frozen=True` 기반의 **`NoteEvent` 불변 데이터 클래스(Dataclass)**를 설계. 각 단계가 독립적인 모듈로 분리되는 함수형 파이프라인 아키텍처로 리팩토링 수행. |
+| **Data Corruption & Tight Coupling** | 하나의 `Generator` 클래스가 파싱, Viterbi 연산, 양자화를 모두 수행하며 딕셔너리 리스트를 직접 수정(In-place)하여 디버깅 불능 상태 초래. | 객체 상태의 변이를 원천 차단하는 `frozen=True` 기반의 **`NoteEvent` 불변 데이터 클래스(Dataclass)** 설계 및 계층별 모듈화 적용. |
+| **Data Loss during Quantization** | 16분음표 격자(Grid Index)를 딕셔너리 키로 사용하여, 같은 격자 내 빠른 패싱 노트 발생 시 선행 노트가 덮어쓰기(Overwrite) 됨. | `RhythmicQuantizer`의 딕셔너리 구조를 폐기하고 **리스트(List) 누적 및 정렬 방식**으로 변경하여 원본 이벤트 데이터 소실 방지. |
+| **Module Namespace Collision** | 도메인 로직과 무관한 렌더러가 전역 `utils/`에 위치하여 파이썬 파일명(`utils.py`)과 패키지(`utils/`) 간의 모듈 충돌 발생. | 출력 계층을 완전히 격리하는 **`renderers/` 패키지를 신설**하고 `TabRenderer`를 이동시켜 의존성 분리 및 안전한 Import 보장. |
 
 ---
 
