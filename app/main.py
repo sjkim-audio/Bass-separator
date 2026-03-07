@@ -5,10 +5,10 @@ os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks
 from fastapi.responses import JSONResponse, FileResponse
 import shutil
-
+from app.schemas.response import TranscriptionResponse, NoteDto
 from app.services.separator import run_demucs
-# Phase 2-4: 우리가 이전 단계에서 수정한 파이프라인 모듈 호출
 from src.main import run_transcription_pipeline 
+
 
 app = FastAPI(
     title="Bass Transcription API",
@@ -32,39 +32,44 @@ def cleanup_files(*file_paths: str):
         except Exception as e:
             print(f"❌ 임시 파일 삭제 실패: {path} - {e}")
 
-# [Fix 1] 'async def' 제거 -> 'def' 사용으로 스레드풀 분리 (Event Loop Blocking 방지)
-@app.post("/api/v1/transcribe")
+@app.post("/api/v1/transcribe", response_model=TranscriptionResponse)
 def transcribe_audio(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
     temp_file_path = os.path.join(UPLOAD_DIR, file.filename)
     
-    # 1. 파일 저장 (동기 I/O 블로킹 최소화를 위해 shutil 사용)
     with open(temp_file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
         
+    separated_bass_path = None
     try:
-        # 2. Phase 1: Demucs 분리 실행 (CPU/GPU Bound)
+        # Phase 1: Separation
         separated_bass_path = run_demucs(temp_file_path, OUTPUT_DIR)
-        
         if not separated_bass_path or not os.path.exists(separated_bass_path):
-            raise HTTPException(status_code=500, detail="Phase 1: Audio separation failed.")
+            raise ValueError("Phase 1: Audio separation failed.")
             
-        # 3. [Fix 3] Phase 2~4: Transcription & Quantization (E2E 파이프라인 통합)
-        # TODO: 현재 콘솔 출력 방식의 run_transcription_pipeline을 JSON/문자열 반환으로 리팩토링해야 함.
-        # result_tab = run_transcription_pipeline(separated_bass_path)
+        # Phase 2~4: Transcription (E2E 파이프라인 연결 완료)
+        ascii_tab, bpm, raw_events = run_transcription_pipeline(separated_bass_path)
         
-        # 임시 조치: 현재는 분리된 파일만 반환
-        result_response = FileResponse(
-            path=separated_bass_path, 
-            filename=f"bass_{file.filename}", 
-            media_type="audio/wav"
-        )
+        # Dataclass(NoteEvent) -> Pydantic(NoteDto) 직렬화 매핑
+        note_dtos = [
+            NoteDto(
+                time=e.time,
+                midi_note=e.midi_note,
+                string_idx=e.string_idx,
+                fret=e.fret,
+                grid_index=e.grid_index,
+                quantized_time=e.quantized_time
+            ) for e in raw_events
+        ]
         
-        # 4. 백그라운드 태스크 등록 (응답 완료 직후 실행됨)
+        # 파일 정리 태스크 예약
         background_tasks.add_task(cleanup_files, temp_file_path, separated_bass_path)
         
-        return result_response
+        return TranscriptionResponse(
+            bpm=bpm,
+            ascii_tab=ascii_tab,
+            notes=note_dtos
+        )
 
     except Exception as e:
-        # 에러 발생 시에도 원본 파일은 반드시 삭제해야 함
-        cleanup_files(temp_file_path)
+        cleanup_files(temp_file_path, separated_bass_path)
         raise HTTPException(status_code=500, detail=str(e))
