@@ -52,7 +52,7 @@
 | **NameError 및 네임스페이스 오염** | 레거시 코드(`src.main`)와 신규 아키텍처가 `app/main.py`에 혼재되어 동일 함수명 충돌 및 파이프라인 단절 에러 발생. | API 컨텍스트와 코어 로직의 의존성을 완벽히 격리. `src/core/pipeline.py`를 단일 진실 공급원(SSOT)으로 신설하여 객체 지향적으로 메서드 체이닝을 복원함. |
 | **프론트엔드 UI 확장성 한계** | API가 텍스트(`\n`이 포함된 문자열) 악보만 반환할 경우, 클라이언트 단에서 인터랙티브 UI(하이라이팅, 수정 등) 구성이 불가능함. | **Pydantic DTO**를 도입하여 시각적 악보 텍스트(`ascii_tab`)와 개별 `BassNoteEvent` 객체 배열(시간, 프렛, 격자 인덱스, **Confidence**)을 함께 JSON으로 직렬화하여 반환. |
 | **단일 노드 다중 요청 OOM 다운** | 제한된 VRAM 환경에서 2개 이상의 Demucs/CREPE 프로세스가 동시 실행되어 할당량을 초과함. | **Semaphore**를 통한 락(Lock) 획득 구조와 `outputs/{task_id}.json` 형태의 **상태 영속화(Persistence)** 저장소를 구축하여 안전한 큐잉(Queueing) 달성. |
-
+| **API Response Data Drop (DTO 누락)** | 백엔드 파이프라인에서 타브 악보와 BPM을 정상 연산했으나, 최종 응답 모델(`TranscriptionResponse`)에 필드가 정의되지 않아 클라이언트 전달 과정에서 증발함. | DTO 최상단 루트에 `bpm` 및 `ascii_tab` 필드를 명시적으로 추가하여, 프론트엔드가 JSON 파싱 후 즉시 화면에 렌더링할 수 있도록 **데이터 컨트랙트(Data Contract) 복원 및 확장**. |
 ---
 
 ## 4. Future Works (Roadmap)
