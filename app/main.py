@@ -4,6 +4,7 @@ import uuid
 import shutil
 import asyncio
 import json
+from src.core.pipeline import run_transcription_pipeline
 
 # 윈도우 환경 DLL 충돌 방지
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
@@ -52,48 +53,29 @@ def save_result_to_disk(task_id: str, data: TranscriptionResponse):
     print(f"💾 결과 저장 완료: {result_path}")
 
 async def run_pipeline_task(task_id: str, temp_file_path: str):
-    """
-    실제 무거운 연산을 수행하는 핵심 워커 함수.
-    세마포어를 획득하여 GPU/RAM 점유를 직렬화한다.
-    """
     async with gpu_semaphore:
-        start_time_perf = time.perf_counter()
-        separated_bass_path = None
-        
+        # ...
         try:
-            # 1. Phase 1: Separation (스레드풀에서 실행하여 이벤트 루프 보호)
-            loop = asyncio.get_event_loop()
-            separated_bass_path = await loop.run_in_executor(None, run_demucs, temp_file_path, RESULT_DIR)
-            
-            if not separated_bass_path:
-                raise ValueError("Separation failed.")
-
-            # 2. Phase 2~4: Transcription (Confidence 데이터 포함 추출)
-            # note: run_transcription_pipeline 내부에서 이제 NoteEvent.confidence를 반환함
+            # ...
             ascii_tab, bpm, raw_events = await loop.run_in_executor(None, run_transcription_pipeline, separated_bass_path)
 
-            # 3. DTO 매핑
             note_dtos = [
                 BassNoteEvent(
-                    start_time=e.time,
-                    midi_note=e.midi_note,
-                    string_idx=e.string_idx,
-                    fret=e.fret,
-                    confidence=getattr(e, 'confidence', 1.0)
+                    start_time=e.time, midi_note=e.midi_note,
+                    string_idx=e.string_idx, fret=e.fret, confidence=getattr(e, 'confidence', 1.0)
                 ) for e in raw_events
             ]
 
             processing_time_ms = (time.perf_counter() - start_time_perf) * 1000
             
+            # [Fix] 누락되었던 bpm과 ascii_tab 추가 반환
             response_data = TranscriptionResponse(
-                metadata=TranscriptionMetadata(
-                    task_id=task_id,
-                    processing_time_ms=processing_time_ms
-                ),
+                bpm=bpm,
+                ascii_tab=ascii_tab,
+                metadata=TranscriptionMetadata(task_id=task_id, processing_time_ms=processing_time_ms),
                 events=note_dtos
             )
 
-            # 4. 결과 영속화 (Polling 대비)
             save_result_to_disk(task_id, response_data)
             
         except Exception as e:
