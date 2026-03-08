@@ -40,13 +40,28 @@ class TabRenderer:
             if s_idx not in tab_buffer:
                 continue 
 
-            fret_str = str(event.fret)
-            if len(fret_str) == 1:
-                cell = f"-{fret_str}-"
-            elif len(fret_str) == 2:
-                cell = f"{fret_str}-"
+            new_fret_str = str(event.fret)
+            existing_cell = tab_buffer[s_idx][m_idx][step_idx]
+
+            # [교정] 충돌 감지 및 병합 로직
+            if existing_cell == "---":
+                if len(new_fret_str) == 1:
+                    cell = f"-{new_fret_str}-"
+                elif len(new_fret_str) == 2:
+                    cell = f"{new_fret_str}-"
+                else:
+                    cell = new_fret_str[:3]
             else:
-                cell = fret_str[:3]
+                # 기존 데이터가 존재할 경우 (Collision)
+                # 하이픈을 제거하고 새로운 노트를 이어붙임 (예: "-5-" + "7" -> "57-")
+                prev_fret = existing_cell.replace("-", "")
+                merged = f"{prev_fret}{new_fret_str}"
+                
+                # ASCII 셀 크기(3자) 강제 맞춤
+                if len(merged) <= 3:
+                    cell = merged.ljust(3, "-")
+                else:
+                    cell = merged[:3] # 공간 부족 시 강제 절삭
 
             tab_buffer[s_idx][m_idx][step_idx] = cell
 

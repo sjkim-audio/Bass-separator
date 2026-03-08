@@ -23,7 +23,10 @@ class ViterbiSmartFingering:
         
         cost_f = 0.0
         if f1 == 0 and f2 != 0:
-            cost_f = self.w_f * f2 * 0.5 * time_multiplier
+            # [교정] Blind Jump Penalty: 7프렛 초과 시 비선형 지수 페널티 부여
+            blind_jump_penalty = max(0, f2 - 7) ** 1.5
+            cost_f = self.w_f * ((f2 * 0.5) + blind_jump_penalty) * time_multiplier
+            
         elif f1 != 0 and f2 != 0:
             dist_f = abs(f2 - f1)
             cost_f = self.w_f * dist_f * time_multiplier
