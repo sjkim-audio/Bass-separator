@@ -85,6 +85,10 @@ E |---------------------------------------------3--|---------3-----4-----3------
 | **Data Corruption & Tight Coupling** | 하나의 `Generator` 클래스가 파싱, Viterbi 연산, 양자화를 모두 수행하며 딕셔너리 리스트를 직접 수정(In-place)하여 디버깅 불능 상태 초래. | 객체 상태의 변이를 원천 차단하는 `frozen=True` 기반의 **`NoteEvent` 불변 데이터 클래스(Dataclass)** 설계 및 계층별 모듈화 적용. |
 | **Data Loss during Quantization** | 16분음표 격자(Grid Index)를 딕셔너리 키로 사용하여, 같은 격자 내 빠른 패싱 노트 발생 시 선행 노트가 덮어쓰기(Overwrite) 됨. | `RhythmicQuantizer`의 딕셔너리 구조를 폐기하고 **리스트(List) 누적 및 정렬 방식**으로 변경하여 원본 이벤트 데이터 소실 방지. |
 | **Module Namespace Collision** | 도메인 로직과 무관한 렌더러가 전역 `utils/`에 위치하여 파이썬 파일명(`utils.py`)과 패키지(`utils/`) 간의 모듈 충돌 발생. | 출력 계층을 완전히 격리하는 **`renderers/` 패키지를 신설**하고 `TabRenderer`를 이동시켜 의존성 분리 및 안전한 Import 보장. |
+| **NameError 및 파이프라인 단절** | API에서 호출하는 `src/main.py` 내부의 파이프라인 로직이 불완전하게 구현(주석 처리)되어 실행 시 붕괴됨. | API 컨텍스트와 완전히 격리된 `src/core/pipeline.py`를 신설하여 `CREPE -> Parser -> Viterbi -> Quantizer -> Renderer`로 이어지는 객체 지향적 메서드 체이닝을 완벽히 복원. |
+| **신뢰도(Confidence) 데이터 유실** | CREPE 모델이 내부적으로 산출하는 예측 확률(Confidence) 데이터가 도메인 파이프라인으로 전달되지 않고 소실됨. | `tracker.py`의 반환값을 `(f0, confidence)` 튜플로 수정하고, `PitchParser`에서 각 노트 지속 구간의 평균(Mean) 신뢰도를 연산하여 `NoteEvent` 불변 객체에 직접 주입(Inject)함. |
+| **16분음표 격자 내 다중 노트 소실 (렌더링)** | 딕셔너리 덮어쓰기를 방지하기 위해 이벤트를 리스트로 모았으나, 최종 `TabRenderer`의 2차원 배열(`tab_buffer`) 할당 시 같은 격자(grid_idx)에 위치한 짧은 꾸밈음이 여전히 덮어쓰기 됨. | `TabRenderer`에 **충돌 감지 및 병합(Collision & Merge) 로직** 추가. 기존 값이 있을 경우 하이픈(`-`)을 제거하고 새 프렛 번호를 이어 붙여(예: `57-`) 데이터 소실을 방지하고 가독성을 보장. |
+| **VRAM 동기화 병목 (추론 속도 저하)** | `tracker.py`의 Chunking 루프 내에서 매번 `torch.cuda.empty_cache()`를 호출하여 PyTorch의 메모리 할당자(Allocator)를 강제 동기화시킴. | 루프 내 캐시 비우기를 제거하고, `try-except RuntimeError`를 활용한 **Dynamic Batching** 로직을 도입. 실제 OOM 발생 시에만 배치 사이즈를 절반으로 줄이고 캐시를 비우도록 최적화하여 정상 상태의 추론 속도 극대화. |
 
 ---
 
@@ -95,7 +99,7 @@ E |---------------------------------------------3--|---------3-----4-----3------
 - [x] **Smart Fingering (Viterbi HMM):** 개방현 우선(Greedy) 로직을 개선하여, 손의 수직(String) 및 수평(Fret) 이동 거리(Cost)를 최소화하는 동적 계획법 기반 운지 경로 디코딩. 
 - [x] **Note Grouping & Debouncing:** 딥러닝 프레임 단위의 연속적인 주파수를 이산적인 단일 MIDI 노트 이벤트로 병합하여 비정상적인 폴리포니 방지.
 - [x] **Rhythmic Quantization (BPM Sync):** 오디오의 BPM을 추정하고 정량적인 16분음표 격자(Grid) 단위로 노트의 시작점을 스냅(Snap)하는 양자화 모델 개발 및 모듈화.
+- [x] **Clean Architecture Integration:** FastAPI 백엔드와 코어 파이프라인(`src/core/pipeline.py`)을 완벽히 격리하고 비동기 폴링을 위한 JSON DTO 응답 규격 정립.
 - [ ] **MIDI Export (Phase 5):** 양자화된 그리드 인덱스와 타겟 BPM을 기반으로 박자가 완벽히 들어맞는 표준 `.mid` 파일 추출 로직(Renderer) 구현.
+- [ ] **Streamlit / Web UI Dashboard:** 클라이언트가 `202 Accepted` 응답 후 `task_id`를 기반으로 폴링(Polling)하여 최종 타브 악보 및 피아노 롤 시각화를 렌더링하는 프론트엔드 구축.
 - [ ] **Articulation Detection:** 슬라이드(Slide), 해머링 온/풀오프(Hammer-on/Pull-off)와 같이 주파수가 매끄럽게 이어지는 구간을 감지하여 타브 악보에 기호(`h`, `/`) 표기.
-- [ ] **Playing Technique Classification:** Slap vs Finger 주법 분류 모델 추가 (Timbre Analysis).
-- [ ] **Streamlit Demo:** 웹 브라우저에서 바로 파일을 업로드하고 분리/악보 변환을 수행할 수 있는 UI 구축.
