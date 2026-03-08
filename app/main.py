@@ -1,10 +1,10 @@
+# app/main.py 
 import os
 import time
 import uuid
 import shutil
 import asyncio
 import json
-from src.core.pipeline import run_transcription_pipeline
 
 # 윈도우 환경 DLL 충돌 방지
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
@@ -16,8 +16,9 @@ from typing import Dict
 # 내부 모듈 임포트
 from app.schemas.response import TranscriptionResponse, TranscriptionMetadata, BassNoteEvent
 from app.services.separator import run_demucs
-from src.main import run_transcription_pipeline
 
+# [Fix] 구버전 src.main 중복 Import 제거 후 src.core.pipeline 단일화
+from src.core.pipeline import run_transcription_pipeline
 app = FastAPI(
     title="Bass Transcription API",
     description="Bass separation and E2E transcription with concurrency control."
