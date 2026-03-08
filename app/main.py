@@ -1,75 +1,143 @@
-# app/main.py
 import os
+import time
+import uuid
+import shutil
+import asyncio
+import json
+
+# 윈도우 환경 DLL 충돌 방지
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks
-from fastapi.responses import JSONResponse, FileResponse
-import shutil
-from app.schemas.response import TranscriptionResponse, NoteDto
-from app.services.separator import run_demucs
-from src.main import run_transcription_pipeline 
+from fastapi.responses import JSONResponse
+from typing import Dict
 
+# 내부 모듈 임포트
+from app.schemas.response import TranscriptionResponse, TranscriptionMetadata, BassNoteEvent
+from app.services.separator import run_demucs
+from src.main import run_transcription_pipeline
 
 app = FastAPI(
     title="Bass Transcription API",
-    description="업로드된 오디오에서 베이스를 분리하고, 타브 악보/MIDI 데이터를 반환합니다."
+    description="Bass separation and E2E transcription with concurrency control."
 )
 
+# 경로 설정
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_DIR = os.path.join(BASE_DIR, "temp_uploads")
-OUTPUT_DIR = os.path.join(BASE_DIR, "temp_outputs")
+# [ADR-003] 상태 저장소: 결과 JSON 및 MIDI 보관 경로
+RESULT_DIR = os.path.join(BASE_DIR, "outputs")
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
-os.makedirs(OUTPUT_DIR, exist_ok=True)
+os.makedirs(RESULT_DIR, exist_ok=True)
+
+# [Fix] GPU OOM 방어: 동시 추론 실행을 1개로 제한하는 세마포어
+gpu_semaphore = asyncio.Semaphore(1)
 
 def cleanup_files(*file_paths: str):
-    """[Fix 2] Storage Leak 방지: 백그라운드 파일 삭제"""
+    """임시 업로드 파일 삭제 (결과물인 outputs/ 내부 파일은 보존)"""
     for path in file_paths:
         try:
             if path and os.path.exists(path):
                 os.remove(path)
-                print(f"✅ 임시 파일 삭제 완료: {path}")
         except Exception as e:
-            print(f"❌ 임시 파일 삭제 실패: {path} - {e}")
+            print(f"⚠️ 파일 삭제 실패: {path} - {e}")
 
-@app.post("/api/v1/transcribe", response_model=TranscriptionResponse)
-def transcribe_audio(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
-    temp_file_path = os.path.join(UPLOAD_DIR, file.filename)
-    
+def save_result_to_disk(task_id: str, data: TranscriptionResponse):
+    """[Phase 3] 상태 저장소: 추론 결과를 JSON으로 직렬화하여 디스크에 보존"""
+    result_path = os.path.join(RESULT_DIR, f"{task_id}.json")
+    with open(result_path, "w", encoding="utf-8") as f:
+        # Pydantic 모델을 dict로 변환 후 JSON 저장
+        json.dump(data.model_dump(), f, indent=4, ensure_ascii=False)
+    print(f"💾 결과 저장 완료: {result_path}")
+
+async def run_pipeline_task(task_id: str, temp_file_path: str):
+    """
+    실제 무거운 연산을 수행하는 핵심 워커 함수.
+    세마포어를 획득하여 GPU/RAM 점유를 직렬화한다.
+    """
+    async with gpu_semaphore:
+        start_time_perf = time.perf_counter()
+        separated_bass_path = None
+        
+        try:
+            # 1. Phase 1: Separation (스레드풀에서 실행하여 이벤트 루프 보호)
+            loop = asyncio.get_event_loop()
+            separated_bass_path = await loop.run_in_executor(None, run_demucs, temp_file_path, RESULT_DIR)
+            
+            if not separated_bass_path:
+                raise ValueError("Separation failed.")
+
+            # 2. Phase 2~4: Transcription (Confidence 데이터 포함 추출)
+            # note: run_transcription_pipeline 내부에서 이제 NoteEvent.confidence를 반환함
+            ascii_tab, bpm, raw_events = await loop.run_in_executor(None, run_transcription_pipeline, separated_bass_path)
+
+            # 3. DTO 매핑
+            note_dtos = [
+                BassNoteEvent(
+                    start_time=e.time,
+                    midi_note=e.midi_note,
+                    string_idx=e.string_idx,
+                    fret=e.fret,
+                    confidence=getattr(e, 'confidence', 1.0)
+                ) for e in raw_events
+            ]
+
+            processing_time_ms = (time.perf_counter() - start_time_perf) * 1000
+            
+            response_data = TranscriptionResponse(
+                metadata=TranscriptionMetadata(
+                    task_id=task_id,
+                    processing_time_ms=processing_time_ms
+                ),
+                events=note_dtos
+            )
+
+            # 4. 결과 영속화 (Polling 대비)
+            save_result_to_disk(task_id, response_data)
+            
+        except Exception as e:
+            print(f"❌ 파이프라인 에러 [{task_id}]: {e}")
+        finally:
+            cleanup_files(temp_file_path, separated_bass_path)
+
+@app.post("/api/v1/transcribe")
+async def transcribe_audio(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
+    """
+    [Main Endpoint] 
+    10MB 제한 및 비동기 수락(202 Accepted)을 처리한다.
+    """
+    # [Security] 파일 크기 제한 (10MB)
+    MAX_SIZE = 10 * 1024 * 1024
+    content = await file.read()
+    if len(content) > MAX_SIZE:
+        raise HTTPException(status_code=413, detail="File too large (Max 10MB)")
+    await file.seek(0)
+
+    task_id = str(uuid.uuid4())
+    temp_file_path = os.path.join(UPLOAD_DIR, f"{task_id}_{file.filename}")
+
+    # 파일 임시 저장
     with open(temp_file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
-        
-    separated_bass_path = None
-    try:
-        # Phase 1: Separation
-        separated_bass_path = run_demucs(temp_file_path, OUTPUT_DIR)
-        if not separated_bass_path or not os.path.exists(separated_bass_path):
-            raise ValueError("Phase 1: Audio separation failed.")
-            
-        # Phase 2~4: Transcription (E2E 파이프라인 연결 완료)
-        ascii_tab, bpm, raw_events = run_transcription_pipeline(separated_bass_path)
-        
-        # Dataclass(NoteEvent) -> Pydantic(NoteDto) 직렬화 매핑
-        note_dtos = [
-            NoteDto(
-                time=e.time,
-                midi_note=e.midi_note,
-                string_idx=e.string_idx,
-                fret=e.fret,
-                grid_index=e.grid_index,
-                quantized_time=e.quantized_time
-            ) for e in raw_events
-        ]
-        
-        # 파일 정리 태스크 예약
-        background_tasks.add_task(cleanup_files, temp_file_path, separated_bass_path)
-        
-        return TranscriptionResponse(
-            bpm=bpm,
-            ascii_tab=ascii_tab,
-            notes=note_dtos
-        )
 
-    except Exception as e:
-        cleanup_files(temp_file_path, separated_bass_path)
-        raise HTTPException(status_code=500, detail=str(e))
+    # [Async Workflow] 백그라운드 태스크로 연산 위임
+    background_tasks.add_task(run_pipeline_task, task_id, temp_file_path)
+
+    # 202 Accepted 반환 (클라이언트는 task_id로 Polling 시작)
+    return JSONResponse(
+        status_code=202,
+        content={"status": "ACCEPTED", "task_id": task_id, "message": "Inference started in background."}
+    )
+
+@app.get("/api/v1/status/{task_id}")
+async def get_status(task_id: str):
+    """[Polling Endpoint] 결과 파일이 생성되었는지 확인하여 반환"""
+    result_path = os.path.join(RESULT_DIR, f"{task_id}.json")
+    
+    if os.path.exists(result_path):
+        with open(result_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return {"status": "SUCCESS", "data": data}
+    
+    return {"status": "PROCESSING", "task_id": task_id}
