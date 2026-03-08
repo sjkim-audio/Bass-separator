@@ -70,7 +70,6 @@ def get_f0_crepe_robust(audio, sr, hop_length=160, fmin=40, fmax=500, smooth_ker
     
     f0_list = []
     confidence_list = []
-    
     for start_idx in range(0, total_samples, chunk_samples):
         end_idx = min(start_idx + chunk_samples, total_samples)
         audio_chunk = audio[start_idx:end_idx]
@@ -81,11 +80,29 @@ def get_f0_crepe_robust(audio, sr, hop_length=160, fmin=40, fmax=500, smooth_ker
 
         audio_tensor = torch.tensor(audio_chunk).unsqueeze(0).to(device)
         
-        f0_chunk, conf_chunk = torchcrepe.predict(
-            audio_tensor, sr, hop_length=hop_length, fmin=fmin, fmax=fmax,
-            model=model_capacity, decoder=torchcrepe.decode.argmax, 
-            return_periodicity=True, device=device, batch_size=batch_size 
-        )
+        # [교정] Dynamic Batching 및 OOM 예외 처리
+        current_batch = batch_size
+        success = False
+        
+        while not success:
+            try:
+                f0_chunk, conf_chunk = torchcrepe.predict(
+                    audio_tensor, sr, hop_length=hop_length, fmin=fmin, fmax=fmax,
+                    model=model_capacity, decoder=torchcrepe.decode.argmax, 
+                    return_periodicity=True, device=device, batch_size=current_batch 
+                )
+                success = True
+            except RuntimeError as e:
+                # OOM 발생 시에만 예외적으로 캐시 정리 및 배치 사이즈 축소
+                if "out of memory" in str(e).lower():
+                    if current_batch <= 1:
+                        raise RuntimeError("❌ CUDA OOM: 배치 사이즈를 1까지 줄였으나 메모리가 부족합니다. chunk_duration을 줄이십시오.")
+                    current_batch //= 2
+                    print(f"⚠️ GPU OOM 감지됨. 배치 사이즈를 {current_batch}(으)로 줄이고 재시도합니다...")
+                    if device == 'cuda':
+                        torch.cuda.empty_cache()
+                else:
+                    raise e # OOM이 아닌 다른 런타임 에러는 그대로 던짐
         
         f0_list.append(f0_chunk.squeeze().cpu().numpy())
         confidence_list.append(conf_chunk.squeeze().cpu().numpy())
