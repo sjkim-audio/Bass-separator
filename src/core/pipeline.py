@@ -3,11 +3,11 @@ import librosa
 from typing import Tuple, List
 
 from src.models.events import NoteEvent
-from transcription.tracker import get_f0_crepe_robust
-from transcription.parser import PitchParser
-from transcription.fingering import ViterbiSmartFingering
-from transcription.quantization import RhythmicQuantizer
-from renderers.tab_renderer import TabRenderer
+from src.transcription.tracker import get_f0_crepe_robust
+from src.transcription.parser import PitchParser
+from src.transcription.fingering import ViterbiSmartFingering
+from src.transcription.quantization import RhythmicQuantizer
+from src.renderers.tab_renderer import TabRenderer
 
 def run_transcription_pipeline(audio_path: str) -> Tuple[str, float, List[NoteEvent]]:
     """
