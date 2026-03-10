@@ -2,7 +2,7 @@
 import librosa
 from typing import Tuple, List
 
-from models.events import NoteEvent
+from src.models.events import NoteEvent
 from transcription.tracker import get_f0_crepe_robust
 from transcription.parser import PitchParser
 from transcription.fingering import ViterbiSmartFingering
