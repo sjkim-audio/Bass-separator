@@ -1,6 +1,6 @@
 import math
 from typing import List
-from models.events import NoteEvent
+from src.models.events import NoteEvent
 
 class TabRenderer:
     STRING_ORDER = [3, 2, 1, 0]

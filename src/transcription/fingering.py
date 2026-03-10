@@ -1,7 +1,7 @@
 import numpy as np
 import librosa
 from typing import List, Tuple
-from models.events import NoteEvent
+from src.models.events import NoteEvent
 
 class ViterbiSmartFingering:
     def __init__(self, weight_fret=1.0, weight_string=2.0, shift_threshold=3, shift_penalty=10.0, open_string_penalty=2.5):

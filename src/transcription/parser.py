@@ -2,7 +2,7 @@
 import numpy as np
 import librosa
 from typing import List, Tuple, Optional
-from models.events import NoteEvent
+from src.models.events import NoteEvent
 
 class PitchParser:
     def __init__(self, sr: int = 16000, hop_length: int = 160):
