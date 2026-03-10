@@ -5,6 +5,7 @@ import uuid
 import shutil
 import asyncio
 import json
+from pathlib import Path
 
 # 윈도우 환경 DLL 충돌 방지
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
@@ -18,6 +19,7 @@ from app.schemas.response import TranscriptionResponse, TranscriptionMetadata, B
 from app.services.separator import run_demucs
 
 # [Fix] 구버전 src.main 중복 Import 제거 후 src.core.pipeline 단일화
+from src.core.demucs_runner import separate_and_generate_stems
 from src.core.pipeline import run_transcription_pipeline
 app = FastAPI(
     title="Bass Transcription API",
@@ -53,12 +55,25 @@ def save_result_to_disk(task_id: str, data: TranscriptionResponse):
         json.dump(data.model_dump(), f, indent=4, ensure_ascii=False)
     print(f"💾 결과 저장 완료: {result_path}")
 
+
 async def run_pipeline_task(task_id: str, temp_file_path: str):
+    os.makedirs("outputs", exist_ok=True)
+
+    bass_path = None
+    bassless_path = None
+    
     async with gpu_semaphore:
-        # ...
         try:
-            # ...
-            ascii_tab, bpm, raw_events = await loop.run_in_executor(None, run_transcription_pipeline, separated_bass_path)
+            # 1. 4-Stem 분리 및 MR 병합 로직 호출
+            bass_path, bassless_path = await separate_and_generate_stems(temp_file_path)
+            
+            loop = asyncio.get_running_loop()
+            start_time_perf = time.perf_counter()
+            
+            # 2. 추출된 베이스 경로만 CREPE + Viterbi 채보 파이프라인으로 전달
+            ascii_tab, bpm, raw_events = await loop.run_in_executor(
+                None, run_transcription_pipeline, bass_path
+            )
 
             note_dtos = [
                 BassNoteEvent(
@@ -69,29 +84,59 @@ async def run_pipeline_task(task_id: str, temp_file_path: str):
 
             processing_time_ms = (time.perf_counter() - start_time_perf) * 1000
             
-            # [Fix] 누락되었던 bpm과 ascii_tab 추가 반환
             response_data = TranscriptionResponse(
                 bpm=bpm,
                 ascii_tab=ascii_tab,
-                metadata=TranscriptionMetadata(task_id=task_id, processing_time_ms=processing_time_ms),
+                metadata=TranscriptionMetadata(
+                    task_id=task_id, 
+                    processing_time_ms=processing_time_ms,
+                    bass_audio_url=f"/api/v1/downloads/{task_id}/bass", # 정적 파일 서빙 라우터 필요
+                    bassless_audio_url=f"/api/v1/downloads/{task_id}/bassless"
+                ),
                 events=note_dtos
             )
 
             save_result_to_disk(task_id, response_data)
             
         except Exception as e:
-            print(f"❌ 파이프라인 에러 [{task_id}]: {e}")
+            print(f"❌ 파이프라인 에러 [{task_id}]: {repr(e)}")
+            error_payload = {"status": "failed", "error": repr(e), "task_id": task_id}
+            
+            with open(f"outputs/{task_id}.json", "w", encoding="utf-8") as f:
+                json.dump(error_payload, f)
+                
         finally:
-            cleanup_files(temp_file_path, separated_bass_path)
+            # 1. 삭제할 파일 목록 초기화 (원본 임시 파일은 항상 삭제)
+            files_to_delete = [temp_file_path]
+            
+            # 2. 파이프라인이 정상적으로 Demucs 트랙을 생성했다면 중간 부산물 추가
+            if bass_path is not None:
+                demucs_out_dir = Path(bass_path).parent
+                
+                # MR 병합이 끝났으므로 개별 악기 스템은 디스크 용량 확보를 위해 삭제
+                drums_path = demucs_out_dir / "drums.wav"
+                vocals_path = demucs_out_dir / "vocals.wav"
+                other_path = demucs_out_dir / "other.wav"
+                
+                for p in [drums_path, vocals_path, other_path]:
+                    if p.exists():
+                        files_to_delete.append(str(p))
+            
+            # 3. 가비지 컬렉션 실행 (bass.wav와 bassless_backing.wav는 제외됨)
+            # cleanup_files 함수가 가변 인자(*args)를 받거나 리스트를 받도록 구현되어 있어야 함
+            try:
+                cleanup_files(*files_to_delete)
+            except Exception as cleanup_error:
+                print(f"⚠ [경고] 임시 파일 정리 중 에러 발생: {cleanup_error}")
 
 @app.post("/api/v1/transcribe")
 async def transcribe_audio(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
     """
     [Main Endpoint] 
-    10MB 제한 및 비동기 수락(202 Accepted)을 처리한다.
+    50MB 제한 및 비동기 수락(202 Accepted)을 처리한다.
     """
-    # [Security] 파일 크기 제한 (10MB)
-    MAX_SIZE = 10 * 1024 * 1024
+    # [Security] 파일 크기 제한 (10MB) -> 50MB로 상향조정
+    MAX_SIZE = 50 * 1024 * 1024
     content = await file.read()
     if len(content) > MAX_SIZE:
         raise HTTPException(status_code=413, detail="File too large (Max 10MB)")
