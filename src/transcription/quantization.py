@@ -1,7 +1,7 @@
 import numpy as np
 import librosa
 from typing import List
-from models.events import NoteEvent
+from src.models.events import NoteEvent
 
 class RhythmicQuantizer:
     def __init__(self, sr: int, hop_length: int):
