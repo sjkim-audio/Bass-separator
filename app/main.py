@@ -18,7 +18,7 @@ from typing import Dict
 from app.schemas.response import TranscriptionResponse, TranscriptionMetadata, BassNoteEvent
 from app.services.separator import run_demucs
 
-# [Fix] 구버전 src.main 중복 Import 제거 후 src.core.pipeline 단일화
+from src.renderers.midi_renderer import MidiRenderer
 from src.core.demucs_runner import separate_and_generate_stems
 from src.core.pipeline import run_transcription_pipeline
 app = FastAPI(
@@ -66,7 +66,6 @@ async def run_pipeline_task(task_id: str, temp_file_path: str):
         try:
             # 1. 4-Stem 분리 및 MR 병합 로직 호출
             bass_path, bassless_path = await separate_and_generate_stems(temp_file_path)
-            
             loop = asyncio.get_running_loop()
             start_time_perf = time.perf_counter()
             
@@ -74,6 +73,10 @@ async def run_pipeline_task(task_id: str, temp_file_path: str):
             ascii_tab, bpm, raw_events = await loop.run_in_executor(
                 None, run_transcription_pipeline, bass_path
             )
+
+            # --- [추가된 로직] MIDI 파일 렌더링 및 저장 ---
+            midi_output_path = f"outputs/{task_id}.mid"
+            MidiRenderer.render_midi(raw_events, bpm, midi_output_path)
 
             note_dtos = [
                 BassNoteEvent(
@@ -91,7 +94,8 @@ async def run_pipeline_task(task_id: str, temp_file_path: str):
                     task_id=task_id, 
                     processing_time_ms=processing_time_ms,
                     bass_audio_url=f"/api/v1/downloads/{task_id}/bass", # 정적 파일 서빙 라우터 필요
-                    bassless_audio_url=f"/api/v1/downloads/{task_id}/bassless"
+                    bassless_audio_url=f"/api/v1/downloads/{task_id}/bassless",
+                    midi_url=f"/api/v1/downloads/{task_id}/midi" # 향후 다운로드용 URL 추가
                 ),
                 events=note_dtos
             )

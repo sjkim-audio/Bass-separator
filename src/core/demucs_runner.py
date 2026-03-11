@@ -29,7 +29,7 @@ async def separate_and_generate_stems(input_audio_path: str, output_dir: str = "
     
     def run_demucs_sync():
         # 서브프로세스를 동기적으로 실행하고 결과를 캡처
-        return subprocess.run(command, capture_output=True, text=True, encoding='utf-8')
+        return subprocess.run(command, capture_output=True, text=True, errors = 'ignore')
     
     # 메인 루프 블로킹 없이 백그라운드 스레드에서 Demucs 실행
     process_result = await loop.run_in_executor(None, run_demucs_sync)
