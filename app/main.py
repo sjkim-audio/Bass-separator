@@ -12,6 +12,7 @@ os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from typing import Dict
 
 # 내부 모듈 임포트
@@ -25,6 +26,7 @@ app = FastAPI(
     title="Bass Transcription API",
     description="Bass separation and E2E transcription with concurrency control."
 )
+app.mount("/api/v1/downloads", StaticFiles(directory="outputs"), name="downloads")
 
 # 경로 설정
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
