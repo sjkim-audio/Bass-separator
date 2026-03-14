@@ -32,7 +32,7 @@ app.mount("/api/v1/downloads", StaticFiles(directory="outputs"), name="downloads
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_DIR = os.path.join(BASE_DIR, "temp_uploads")
 # [ADR-003] 상태 저장소: 결과 JSON 및 MIDI 보관 경로
-RESULT_DIR = os.path.join(BASE_DIR, "outputs")
+RESULT_DIR = "outputs"
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(RESULT_DIR, exist_ok=True)
@@ -164,7 +164,8 @@ async def transcribe_audio(background_tasks: BackgroundTasks, file: UploadFile =
         content={"status": "ACCEPTED", "task_id": task_id, "message": "Inference started in background."}
     )
 
-@app.get("/api/v1/status/{task_id}")
+# [수정] 프론트엔드 호출 규약과 완벽히 일치시키고 JSON 구조 평탄화(Flatten)
+@app.get("/api/v1/tasks/{task_id}")
 async def get_status(task_id: str):
     """[Polling Endpoint] 결과 파일이 생성되었는지 확인하여 반환"""
     result_path = os.path.join(RESULT_DIR, f"{task_id}.json")
@@ -172,6 +173,10 @@ async def get_status(task_id: str):
     if os.path.exists(result_path):
         with open(result_path, "r", encoding="utf-8") as f:
             data = json.load(f)
-        return {"status": "SUCCESS", "data": data}
+        
+        # 프론트엔드의 if status == "SUCCESS" 조건문을 통과하도록 루트 레벨에 주입
+        data["status"] = "SUCCESS"
+        return data
     
+    # 파일이 아직 없으면 연산 중
     return {"status": "PROCESSING", "task_id": task_id}
