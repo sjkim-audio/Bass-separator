@@ -5,7 +5,9 @@
 > Phase 2 Completed (FastAPI & Docker Containerization)
 > Phase 3 Completed (End-to-End API Integration & Pydantic Schema)
 > Phase 4 Completed (Single-node Concurrency Control & Polling)
-> Phase 5 Planned (Distributed Task Queue for Scale-out)
+> Phase 4.5 Completed (4-Stem Audio Separation & OS-Agnostic Subprocess)
+> Phase 5 Completed (Data Diversification & Streamlit MVP Frontend)
+> Phase 6 Planned (Algorithm Fine-tuning & Distributed Task Queue)
 
 ## 1. Overview
 이 프로젝트는 완성된 오디오 전사(Transcription) 파이프라인을 다수의 클라이언트(웹/앱)가 호출할 수 있도록 **FastAPI 기반의 RESTful API 서버로 전환**하고, 안정적인 서비스 구동을 위한 **Docker 인프라 환경**을 구축하는 과정을 기록합니다.
@@ -14,7 +16,7 @@
 
 중기(Phase 3, 4)는 CLI용으로 설계된 파이프라인을 객체 지향적으로 완벽히 분리(`src/core/pipeline.py`)하고, HTTP 통신에 적합한 JSON/DTO 구조로 리팩토링함과 동시에 **다중 사용자 접속 시 발생하는 서버 다운(OOM) 현상을 비동기 폴링과 세마포어로 완벽히 방어**하는 데 성공했습니다.
 
-최근(Phase 4.5)에는 4-Stem 모델을 도입하고 고해상도 MR(Bassless) 음원을 병합 생성하는 로직을 통합했습니다. 이 과정에서 발생한 Windows 환경의 비동기 이벤트 루프 충돌(`NotImplementedError`)과 VRAM 누수 문제를 원천 차단하기 위해, 플랫폼 독립적인 동기 호출(`subprocess.run`)을 비동기 스레드 풀(`loop.run_in_executor`)에 위임하는 하이브리드 아키텍처를 구축하여 단일 노드 환경에서의 시스템 무결성과 안정성을 극대화했습니다.
+최근(Phase 4.5, 5)에는 4-Stem 모델을 도입하고 고해상도 MR(Bassless) 음원을 병합 생성하는 로직을 통합했습니다. 이 과정에서 발생한 Windows 환경의 비동기 이벤트 루프 충돌(`NotImplementedError`)과 VRAM 누수 문제를 원천 차단하기 위해, 플랫폼 독립적인 동기 호출(`subprocess.run`)을 비동기 스레드 풀(`loop.run_in_executor`)에 위임하는 하이브리드 아키텍처를 구축했습니다. 또한, **정적 파일 서빙 라우터**와 **Streamlit 기반의 MVP 프론트엔드 웹 데모**를 결합하여 완벽하게 디커플링(Decoupling)된 E2E 클라이언트-서버 시각화 환경을 완성했습니다.
 
 ---
 
@@ -43,6 +45,10 @@
 - **Problem:** Step 1에서 도입한 Direct Import 방식은 I/O 오버헤드를 줄였으나, FastAPI 워커 메모리와 PyTorch 텐서 자원이 결합되면서 서버 장기 가동 시 치명적인 VRAM 누수(Memory Leak)를 유발할 위험이 있었습니다. 또한, 이를 회피하고자 도입한 `asyncio.create_subprocess_exec` 비동기 호출 방식은 Windows OS 환경에서 Uvicorn의 `SelectorEventLoop`와 충돌하여 `NotImplementedError`를 던지는 인프라 종속적 결함이 발현되었습니다.
 - **Optimization:** 오디오 분리 전용 독립 모듈인 `src/core/demucs_runner.py`를 신설했습니다. 완벽한 GPU 메모리 반환(OS 레벨 격리)을 위해 파이프라인을 다시 외부 서브프로세스로 분리하되, OS 호환성 문제가 없는 동기형 `subprocess.run`을 채택하고 이를 Uvicorn의 **비동기 스레드 풀(`loop.run_in_executor`)에 위임**하는 방식으로 아키텍처를 교정했습니다. 이를 통해 메인 이벤트 루프 블로킹 방지와 완벽한 프로세스 가비지 컬렉션, 그리고 플랫폼 독립성을 동시에 달성했습니다.
 
+### Step 6: Data Output Diversification & MVP UI (Phase 5)
+- **Problem:** 단순 JSON 및 텍스트 데이터만으로는 사용자가 오디오 분석 품질을 검증하거나 다른 DAW(디지털 오디오 워크스테이션)와 연동할 수 없었습니다.
+- **Optimization:** `mido` 라이브러리를 활용한 `MidiRenderer`를 도입하여 물리적 타이밍이 보존된 `.mid` 파일 추출 로직을 신설했습니다. 또한, FastAPI 내부 정적 파일 서빙(`StaticFiles`) 라우터를 마운트하고, Streamlit 전용 프론트엔드(`app.py`)를 구축하여 **오디오 플레이어, 악보 렌더링, 파일 다운로드**를 하나의 화면에 통합했습니다.
+
 ---
 
 ## 3. Challenges & Solutions (Troubleshooting)
@@ -62,19 +68,27 @@
 | **`[NotImplementedError]` OS 이벤트 루프 충돌** | Windows 환경에서 Uvicorn이 사용하는 `SelectorEventLoop`가 파이썬 표준 `asyncio` 서브프로세스 생성을 지원하지 않아 발생한 시스템 크래시. | 플랫폼 비종속적인 동기 함수 `subprocess.run`을 사용하고, 이를 `loop.run_in_executor`로 감싸 백그라운드 스레드에 위임함으로써 OS 락(Lock) 현상을 원천 우회함. |
 | **`[UnboundLocalError]` 네임스페이스 파편화** | `finally` 블록 내부에 지연 선언된 `import os`가 파이썬의 변수 호이스팅(Hoisting) 규칙과 충돌하여 상위 로직 실행을 차단함. | 함수 내부에 산재된 모든 `import` 구문을 파일 최상단(Global Scope)으로 이동시켜 로컬 네임스페이스 오염을 제거함. |
 | **`[FileNotFoundError]` 상태 영속화 실패** | 서버 최초 구동 시 상태 저장용 `outputs/` 디렉토리가 물리적으로 존재하지 않아 `except` 블록의 JSON 파일 에러 로깅마저 실패함. | 파이프라인(`run_pipeline_task`) 진입 직후 최상단에 `os.makedirs("outputs", exist_ok=True)`를 강제 배치하여 디렉토리 I/O 안전장치 확보. |
-| **`[413 Payload Too Large]` 업로드 크기 제한** | FastAPI 라우터 내부에 OOM 방어를 명목으로 하드코딩된 10MB 크기 제한 로직이 대용량 오디오 수신을 거부함. | 고음질 무손실 `.wav` 파일(일반적으로 30~50MB) 처리를 위해 API 제한 임계치를 50MB로 상향 조정하고 Docstring 문서화 동기화. |
+| **`[413 Payload Too Large]` 업로드 크기 제한** | FastAPI 라우터 내부에 OOM 방어를 명목으로 하드코딩된 10MB 크기 제한 로직이 대용량 오디오 수신 거부. | 고음질 무손실 `.wav` 파일 처리를 위해 API 제한 임계치를 50MB로 상향 조정하고 Docstring 문서화 동기화. |
 | **Artifact Evaporation (결과물 증발)** | `finally` 블록에 선언된 기존 가비지 컬렉션 로직이, 처리가 완료된 유효 결과물(베이스 트랙, MR 파일)까지 무차별적으로 삭제함. | 삭제 대상을 '초기 임시 업로드 파일'과 '중간 부산물 트랙'으로 한정하고, 최종 결과물 2종은 보존되도록 `cleanup_files` 호출 로직 세분화. |
+| **Phase 5 (Output & Visualization)** | | |
+| **`UnicodeDecodeError` in Subprocess** | Windows 터미널(CP949)과 Demucs 백그라운드 스레드의 UTF-8 디코딩 규격 불일치. | `subprocess.run` 옵션에 `errors='ignore'`를 추가하여 인코딩 충돌 시 프로세스 중단 없이 에러 로그를 무시하도록 패치. |
+| **Infinite 404 Polling & Timeout** | 백엔드 경로 파편화(`app/outputs/` vs `outputs/`) 및 라우터 엔드포인트(`status` vs `tasks`) 불일치로 인한 클라이언트 타임아웃 발생. | 결과를 저장하는 디렉토리를 루트 `outputs/`로 강제 통합(SSOT)하고, API URL과 JSON 뎁스(Flattening)를 프론트엔드 통신 규약과 완전히 일치시킴. |
+| **오디오 404 & UI Broken Link** | 특수문자나 괄호가 포함된 파일명 업로드 시, Demucs 내부에서 이를 언더스코어(`_`)로 정규화하여 프론트엔드가 조합한 URL이 실제 파일 경로와 불일치함. | 프론트엔드(`app.py`)에 정규표현식(`re`)을 활용한 파일명 단순화 헬퍼 로직을 추가하여 Demucs의 디렉토리 생성 규칙과 클라이언트의 URL 요청을 동기화. |
+
 ---
 
 ## 4. Future Works (Roadmap)
 
-다음 단계의 백엔드 목표입니다.
+다음 단계의 프로젝트 목표입니다.
 
-- [x] **Pydantic Schema & DTO:** E2E 파이프라인 결과를 캡슐화한 `TranscriptionResponse` 모델 구현 및 float 최적화 적용.
+- [x] **Pydantic Schema & DTO:** E2E 파이프라인 결과를 캡슐화한 `TranscriptionResponse` 모델 구현.
 - [x] **Renderer Return Refactoring:** `TabRenderer`가 콘솔 출력이 아닌 렌더링된 문자열을 병합 충돌 없이 반환하도록 수정.
 - [x] **E2E Pipeline Integration:** `src/core/pipeline.py` 분리 및 `app/main.py` 라우터와 완벽한 연결.
 - [x] **Single-node Concurrency (Phase 4):** `Semaphore` 및 `BackgroundTasks`를 활용한 단일 노드 기반 비동기 폴링 큐 구축.
-- [ ] **Distributed Task Queue (Phase 5):** 단일 노드의 한계(스레드 블로킹)를 넘어, 다수의 Worker 노드로 스케일 아웃(Scale-out)이 가능하도록 **Celery + Redis** 기반의 분산 비동기 큐잉 시스템 전환.
-- [ ] **Cloud Storage Integration:** 임시 파일 저장소를 로컬 디스크에서 AWS S3 또는 GCP Bucket 기반 스트리밍 처리로 고도화하여 무상태(Stateless) 서버 달성.
 - [x] **Subprocess Isolation (`demucs_runner.py`):** 메모리 누수 방지 및 OS 독립적 프로세스 실행을 위한 스레드 위임 아키텍처 구현.
-- [ ] **Storage TTL Cron Job (Tech Debt):** `finally` 블록의 가비지 컬렉션에서 보존되도록 변경된 최종 결과물(오디오 및 JSON)로 인해 로컬 스토리지 용량이 무한히 팽창하는 것을 막기 위해, 주기적으로 만료된 과거 파일을 자동 삭제하는 TTL(Time-To-Live) 기반 셸 스크립트 또는 스케줄러 도입 필요.
+- [x] **MIDI Artifact Generation:** `mido` 라이브러리를 활용한 타이밍/운지법 보존형 표준 `.mid` 파일 추출 로직 구축.
+- [x] **Streamlit Web Demo (MVP):** FastAPI와 통신하여 오디오 플레이어와 악보를 렌더링하는 시각화 클라이언트 완성.
+- [ ] **Algorithm Post-processing (Quality):** CREPE 모델의 한계를 보완하기 위한 Offset(노트 종료점) 휴리스틱 개선 및 고스트 노트/배음 필터링 로직 도입.
+- [ ] **Model Fine-tuning (Phase 6):** 실제 베이스 연주-악보 페어 데이터셋을 구축하여 피치 트래커의 인식률과 Viterbi 운지법 확률 모델을 베이스 기타에 특화되도록 재학습.
+- [ ] **Distributed Task Queue:** 단일 노드의 한계를 넘어, 다수의 Worker 노드로 스케일 아웃(Scale-out)이 가능하도록 **Celery + Redis** 기반의 분산 큐잉 시스템 전환.
+- [ ] **Storage TTL Cron Job (Tech Debt):** 지속적으로 누적되는 로컬 결과물(오디오 및 JSON)의 용량 팽창을 막기 위해 만료된 파일을 삭제하는 TTL 셸 스크립트 도입.
