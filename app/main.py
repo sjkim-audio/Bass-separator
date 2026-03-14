@@ -17,8 +17,6 @@ from typing import Dict
 
 # 내부 모듈 임포트
 from app.schemas.response import TranscriptionResponse, TranscriptionMetadata, BassNoteEvent
-from app.services.separator import run_demucs
-
 from src.renderers.midi_renderer import MidiRenderer
 from src.core.demucs_runner import separate_and_generate_stems
 from src.core.pipeline import run_transcription_pipeline
