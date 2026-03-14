@@ -1,8 +1,8 @@
 import numpy as np
 import librosa
 from typing import List, Tuple, Dict, Optional, Any
-from .fingering import ViterbiSmartFingering
-from .quantization import RhythmicQuantizer
+from src.transcription.fingering import ViterbiSmartFingering
+from src.transcription.quantization import RhythmicQuantizer
 
 class BassTabGenerator:
     def __init__(self, sr: int = 16000, hop_length: int = 160):

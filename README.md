@@ -21,24 +21,40 @@
 ## 📂 Repository Structure
 ```text
 .
-├── app/                  # FastAPI 기반 API 서버 (분리 서비스)
-│   ├── main.py           # API 엔드포인트 라우팅
-│   └── services/         # Demucs 프로세스 실행 등 비즈니스 로직
-├── docs/                 # 프로젝트 문서 (ADR, 로드맵, 개발 일지 등)
-│   ├── ADR/              # Architecture Decision Records
-│   └── Transcription_devlog.md # 핵심 개발 기록
-├── notebooks/            # 알고리즘 실험 및 데이터 분석 환경 (Jupyter)
-│   ├── archive/          # 과거 알고리즘 비교 실험 (NMF, UMX 등)
-│   └── transcription/    # 타브 생성 및 에러 보정 파이프라인 실험
-├── src/                  # 핵심 파이썬 모듈 (Core Library)
+├── app/                  # FastAPI 기반 REST API 백엔드 서버
+│   ├── main.py           # API 라우팅 (비동기 폴링, 상태 영속화, 정적 파일 서빙)
+│   ├── temp_uploads/     # 업로드된 원본 오디오 임시 대기열 (런타임 생성)
+│   └── outputs/          # 최종 추출물 (Bass, MR, JSON, MIDI) 저장소 (런타임 생성)
+├── docs/                 # 프로젝트 기술 문서
+│   ├── ADR/              # Architecture Decision Records (설계 의사결정 기록)
+│   ├── Backend_devlog.md # 백엔드/인프라 구축 일지
+│   └── Transcription_devlog.md # DSP 및 알고리즘 개발 일지
+├── src/                  # 코어 비즈니스 로직 및 DSP 라이브러리 (도메인 분리)
+│   ├── core/             # 파이프라인 제어 및 프로세스 격리
+│   │   ├── demucs_runner.py # Demucs 4-Stem 오디오 분리 및 Numpy MR 병합 로직
+│   │   └── pipeline.py      # E2E 전사 파이프라인 (분리 -> 피치 트래킹 -> 악보화)
+│   ├── models/           # 데이터 스키마 및 DTO 컨트랙트
+│   │   └── events.py        # Pydantic 기반 NoteEvent 및 응답 모델 정의
+│   ├── renderers/        # 최종 결과물 포맷팅 로직
+│   │   ├── midi_renderer.py # 물리적 타이밍/운지법이 보존된 .mid 파일 생성기
+│   │   └── tab_renderer.py  # ASCII 텍스트 기반 타브 악보 렌더러
+│   ├── transcription/    # 음향 분석 및 타브 악보 변환 핵심 알고리즘
+│   │   ├── fingering.py     # Viterbi HMM 기반 최적 운지법(Fret/String) 탐색 알고리즘
+│   │   ├── parser.py        # 오디오 데이터 전처리 및 파싱
+│   │   ├── quantization.py  # BPM 기반 밀리초(ms) 물리량의 음악적 양자화
+│   │   ├── tab_generator.py # 노트 이벤트를 악보 좌표계로 매핑
+│   │   └── tracker.py       # CREPE 기반 피치 트래킹(Pitch Detection) 모듈
 │   ├── augmentation.py   # 파인튜닝용 오디오 증강 모듈
-│   ├── bass_transcription.py # CREPE 트래킹 및 Post-processing 로직
 │   ├── env_setup.py      # 의존성 및 환경 구축 스크립트
 │   ├── evaluation.py     # 분리 성능 정량 평가 (SDR, SIR, SAR)
-│   ├── tab_generator.py  # Viterbi HMM 및 상태 머신 적용 타브 생성기
+│   ├── main.py           # (Legacy) CLI 전용 단일 파이프라인 실행 스크립트
+│   ├── run_eval.py       # 평가 파이프라인 일괄 실행 스크립트
+│   ├── utils.py          # 공통 유틸리티 함수
 │   └── visualization.py  # 피아노 롤 및 스펙트로그램 시각화
+├── app.py                # Streamlit 기반 프론트엔드 웹 데모 (MVP 시각화 및 다운로드)
 ├── docker-compose.yml    # API 서버 컨테이너 오케스트레이션
-├── Dockerfile            # API 서버 이미지 빌드 파일
+├── Dockerfile            # API 서버 이미지 빌드 명세서
 └── requirements.txt      # Python 패키지 의존성
+
 ```
 

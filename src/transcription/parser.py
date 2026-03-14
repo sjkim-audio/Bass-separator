@@ -1,9 +1,8 @@
+# src/transcription/parser.py
 import numpy as np
 import librosa
 from typing import List, Tuple, Optional
-from models.events import NoteEvent
-
-# 오디오 특성(F0)을 도메인 모델(NoteEvent)로 변환하는 파서(Parser) 계층
+from src.models.events import NoteEvent
 
 class PitchParser:
     def __init__(self, sr: int = 16000, hop_length: int = 160):
@@ -21,6 +20,7 @@ class PitchParser:
         if not candidates: return None
         return min(candidates, key=lambda x: x[1])
 
+    # [Fix] confidence_array 파라미터 추가 및 duration 데이터 복원 병합
     def parse_f0_to_events(self, f0_array: np.ndarray, confidence_array: np.ndarray, min_duration_frames: int = 5, tolerance_frames: int = 3) -> List[NoteEvent]:
         events = []
         frame_time = self.hop_length / self.sr
@@ -42,8 +42,9 @@ class PitchParser:
                 elif current_note != midi_note:
                     duration_frames = i - note_start_frame
                     if duration_frames >= min_duration_frames:
+                        # 신뢰도(conf)와 지속시간(duration) 모두 계산
                         conf = float(np.mean(confidence_array[note_start_frame:i]))
-                        duration_sec = float(duration_frames * frame_time) # [Fix] 초 단위 지속 시간 계산
+                        duration_sec = float(duration_frames * frame_time) 
                         events.append(self._create_event(current_note, note_start_frame * frame_time, duration_sec, conf))
                     current_note = midi_note
                     note_start_frame = i
@@ -54,7 +55,7 @@ class PitchParser:
                     duration_frames = end_idx - note_start_frame
                     if duration_frames >= min_duration_frames:
                         conf = float(np.mean(confidence_array[note_start_frame:end_idx]))
-                        duration_sec = float(duration_frames * frame_time) # [Fix] 초 단위 지속 시간 계산
+                        duration_sec = float(duration_frames * frame_time) 
                         events.append(self._create_event(current_note, note_start_frame * frame_time, duration_sec, conf))
                     current_note = None
                     
@@ -63,12 +64,12 @@ class PitchParser:
             duration_frames = end_idx - note_start_frame
             if duration_frames >= min_duration_frames:
                 conf = float(np.mean(confidence_array[note_start_frame:end_idx]))
-                duration_sec = float(duration_frames * frame_time) # [Fix] 초 단위 지속 시간 계산
+                duration_sec = float(duration_frames * frame_time) 
                 events.append(self._create_event(current_note, note_start_frame * frame_time, duration_sec, conf))
 
         return events
 
-    # [Fix] duration_sec 매개변수 추가 및 NoteEvent에 명시적 주입
+    # [Fix] duration_sec, confidence 매개변수 추가 및 NoteEvent에 명시적 주입
     def _create_event(self, midi_note: int, time_sec: float, duration_sec: float, confidence: float) -> NoteEvent:
         candidates = self.get_fret_candidates(librosa.midi_to_hz(midi_note))
         pos = self.choose_fret_greedy(candidates)

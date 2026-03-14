@@ -135,4 +135,4 @@ def get_f0_crepe_robust(audio, sr, hop_length=160, fmin=40, fmax=500, smooth_ker
     # [수정됨] 조기 양자화 제거. 베이스 음역대를 벗어나는 초고주파 노이즈만 컷오프
     f0[f0 > 200] = np.nan
 
-    return f0
+    return f0, confidence

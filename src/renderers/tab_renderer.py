@@ -1,40 +1,49 @@
 import math
 from typing import List
-from models.events import NoteEvent
+from src.models.events import NoteEvent
 
 class TabRenderer:
     STRING_ORDER = [3, 2, 1, 0]
     STRING_NAMES = {3: "G", 2: "D", 1: "A", 0: "E"}
 
     @staticmethod
-    def render_quantized_tab(events: List[NoteEvent], bpm: float) -> str:
+    def render_tab(events: List[NoteEvent], bpm: float) -> str:
         if not events:
             return "⚠️ 렌더링할 유효한 노트 이벤트가 없습니다."
 
-        # 문자열 누적을 위한 리스트 (String concatenation 최적화)
         output_lines = []
-        output_lines.append(f"🎸 Quantized Bass Tab (BPM: {round(bpm)})\n")
+        is_fallback = bpm <= 0
+        
+        if is_fallback:
+            output_lines.append(f"🎸 Unquantized Bass Tab (Fallback Rendering - Time Based)\n")
+        else:
+            output_lines.append(f"🎸 Quantized Bass Tab (BPM: {round(bpm)})\n")
 
-        valid_grids = [e.grid_index for e in events if e.grid_index is not None]
-        if not valid_grids:
-            return "⚠️ 양자화된 격자 정보가 없습니다. Quantizer 로직을 확인하십시오."
+        # [Fix] Fallback 모드 시 물리적 시간을 가상의 그리드 인덱스로 변환 (100ms 단위)
+        virtual_grids = []
+        for e in events:
+            if is_fallback:
+                grid = int(e.time * 10) # 1초 = 10칸
+            else:
+                grid = e.grid_index if e.grid_index is not None else int(e.time * 10)
+            virtual_grids.append(grid)
             
-        max_grid = max(valid_grids)
+        max_grid = max(virtual_grids) if virtual_grids else 0
         total_measures = math.ceil((max_grid + 1) / 16)
-        if total_measures == 0:
-            total_measures = 1
+        total_measures = max(1, total_measures)
 
         tab_buffer = {
             s_idx: [["---" for _ in range(16)] for _ in range(total_measures)] 
             for s_idx in TabRenderer.STRING_ORDER
         }
 
-        for event in events:
-            if event.grid_index is None or event.string_idx is None or event.fret is None:
+        for idx, event in enumerate(events):
+            if event.string_idx is None or event.fret is None:
                 continue
             
-            m_idx = event.grid_index // 16
-            step_idx = event.grid_index % 16
+            grid_pos = virtual_grids[idx]
+            m_idx = grid_pos // 16
+            step_idx = grid_pos % 16
             s_idx = event.string_idx
 
             if s_idx not in tab_buffer:
