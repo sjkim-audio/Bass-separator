@@ -5,12 +5,15 @@
 > Phase 2 Completed (Deep Learning-based Tracking & Error Correction)
 > Phase 3 Completed (Smart Tablature Generation & Optimization)
 > Phase 4 Completed (Rhythmic Quantization & Pipeline Modularization)
-> Phase 5 In Progress (MIDI Export & Articulation Detection)
+> Phase 5 Completed (MIDI Export & Streamlit Web UI Integration)
+> Phase 6 Planned (Algorithm Fine-Tuning & Articulation Detection)
 
 ## 1. Overview
 이 프로젝트는 믹스된 오디오에서 베이스를 분리하고 **실제 연주 가능한 타브 악보(ASCII Tab)**를 생성하는 End-to-End 파이프라인입니다. 
 
 초기(Phase 1)에는 `librosa.pyin`을 사용했으나, 분리된 베이스 음원(Stem)의 낮은 음질과 노이즈로 인해 정확도가 떨어지는 한계가 있었습니다. 현재(Phase 2)는 **SOTA 딥러닝 모델인 CREPE**를 도입하고, 베이스에 특화된 전/후처리(Pre/Post-processing) 로직을 통해 피치 인식률을 비약적으로 향상시켰습니다. 나아가 물리적 연주 가능성(Playability)을 고려한 최적 운지법 추천 모델(Phase 3)을 거쳐, 오디오의 물리적 시간을 음악적 박자(16분음표 격자)로 정렬하는 **리듬 양자화(Phase 4)**를 달성했습니다. 전체 시스템은 유지보수와 확장을 위해 불변 데이터 파이프라인(Immutable Data Pipeline)으로 재설계되었습니다.
+
+최근(Phase 5)에는 추출된 원시 노트 이벤트(NoteEvent) 배열을 활용하여 물리적 타이밍과 운지법이 보존된 **표준 `.mid` (MIDI) 파일 렌더링 로직**을 신설하고, REST API와 연동되는 **Streamlit 기반의 시각화 프론트엔드 웹 데모**를 구축하여 사용자 접근성과 데이터 출력 다각화를 완수했습니다.
 
 ---
 
@@ -101,6 +104,7 @@ E |---------------------------------------------3--|---------3-----4-----3------
 - [x] **Note Grouping & Debouncing:** 딥러닝 프레임 단위의 연속적인 주파수를 이산적인 단일 MIDI 노트 이벤트로 병합하여 비정상적인 폴리포니 방지.
 - [x] **Rhythmic Quantization (BPM Sync):** 오디오의 BPM을 추정하고 정량적인 16분음표 격자(Grid) 단위로 노트의 시작점을 스냅(Snap)하는 양자화 모델 개발 및 모듈화.
 - [x] **Clean Architecture Integration:** FastAPI 백엔드와 코어 파이프라인(`src/core/pipeline.py`)을 완벽히 격리하고 비동기 폴링을 위한 JSON DTO 응답 규격 정립.
-- [ ] **MIDI Export (Phase 5):** 양자화된 그리드 인덱스와 타겟 BPM을 기반으로 박자가 완벽히 들어맞는 표준 `.mid` 파일 추출 로직(Renderer) 구현.
-- [ ] **Streamlit / Web UI Dashboard:** 클라이언트가 `202 Accepted` 응답 후 `task_id`를 기반으로 폴링(Polling)하여 최종 타브 악보 및 피아노 롤 시각화를 렌더링하는 프론트엔드 구축.
-- [ ] **Articulation Detection:** 슬라이드(Slide), 해머링 온/풀오프(Hammer-on/Pull-off)와 같이 주파수가 매끄럽게 이어지는 구간을 감지하여 타브 악보에 기호(`h`, `/`) 표기.
+- [x] **MIDI Export (Phase 5):** 추출된 이벤트 데이터를 순회하며 물리적 타이밍(Delta Time)과 운지법이 보존된 표준 `.mid` 파일 추출 로직(`MidiRenderer`) 구현 완료.
+- [x] **Streamlit / Web UI Dashboard:** 클라이언트가 `202 Accepted` 응답 후 `task_id`를 기반으로 비동기 폴링하여 최종 타브 악보, 음원 렌더링 및 MIDI를 다운로드할 수 있는 MVP 프론트엔드 구축 완료.
+- [ ] **Articulation Detection & Offset Heuristics (Quality):** 슬라이드(Slide), 해머링 온/풀오프(Hammer-on/Pull-off) 감지 및 CREPE 모델의 Offset(음 종료점) 추적 한계를 보완하여 질척이는 음(Sustain)을 깔끔하게 커팅하는 휴리스틱 로직 개발.
+- [ ] **Model Fine-Tuning (Phase 6):** 실제 베이스 연주-악보 페어(Pair) 데이터셋을 구축하여, 피치 트래커의 인식률 및 Viterbi 운지법 전이 확률(Transition Matrix)을 베이스 기타 도메인에 완벽히 특화되도록 재학습.
