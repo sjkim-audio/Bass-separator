@@ -42,10 +42,10 @@ if uploaded_file is not None:
 
 # 비동기 폴링 
 if st.session_state.task_id and not st.session_state.result_data:
-    with st.spinner("AI 모델 추론 및 타브 악보 추출 중... (약 10~30초 소요)"):
+    with st.spinner("AI 모델 추론 및 타브 악보 추출 중..."):
         task_id = st.session_state.task_id
         
-        for _ in range(60): # 최대 2분 대기
+        for _ in range(300): # 최대 10분 대기로 연장
             try:
                 poll_res = requests.get(f"{API_BASE_URL}/tasks/{task_id}")
                 if poll_res.status_code == 200:
