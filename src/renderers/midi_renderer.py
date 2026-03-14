@@ -34,25 +34,21 @@ class MidiRenderer:
         # note_on과 note_off 이벤트를 시간순으로 하나의 배열로 병합
         midi_events = []
         for i, event in enumerate(sorted_events):
-            # duration이 0이거나 없는 경우, 다음 노트 시작점까지로 계산 (최대 2초 제한)
+            # [Fix] Heuristic 추측 로직 제거. Parser가 역산한 실제 duration 데이터를 그대로 신뢰함.
             duration = getattr(event, 'duration', 0.0)
+            
+            # 파이프라인 에러 방지용 최소 길이(0.05초) 보장 (극단적 스냅 방지)
             if duration <= 0.0:
-                if i < len(sorted_events) - 1:
-                    duration = min(sorted_events[i+1].time - event.time, 2.0)
-                else:
-                    duration = 0.5 # 마지막 노트는 0.5초 고정
+                duration = 0.05 
 
-            # 절대 시간 기록
             on_time = event.time
             off_time = event.time + duration
             
-            # 베이스 기타임을 명시하기 위해 채널 0, 적절한 Velocity 부여 (Confidence 반영 가능)
-            velocity = int(64 + (getattr(event, 'confidence', 1.0) * 63)) # 64 ~ 127 사이
+            velocity = int(64 + (getattr(event, 'confidence', 1.0) * 63))
             
             midi_events.append({'type': 'note_on', 'time': on_time, 'note': event.midi_note, 'velocity': velocity})
             midi_events.append({'type': 'note_off', 'time': off_time, 'note': event.midi_note, 'velocity': 0})
 
-        # 다시 절대 시간 기준으로 정렬
         midi_events.sort(key=lambda x: x['time'])
 
         # 5. Delta Time 계산 및 트랙 기록
