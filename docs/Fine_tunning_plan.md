@@ -1,6 +1,6 @@
 # Fine-Tuning Strategy & Training Plan
 
-본 문서는 `htdemucs_two_stems` (2-Stem) 베이스라인 모델의 베이스 트랙 분리 성능을 향상시키기 위한 파인튜닝(Fine-tuning) 계획과 구조적 안전망을 기록합니다.
+본 문서는 htdemucs 모델의 베이스 트랙 분리 성능을 향상시키기 위한 파인튜닝(Fine-tuning) 계획과 구조적 안전망을 기록합니다.
 
 ## 1. Objective (파인튜닝 목표)
 특정 장르(메탈 등)나 특정 주법(슬랩 등)에만 국한된 전문가 모델을 만드는 것이 아닌, **어떤 환경의 오디오 소스에서도 베이스를 안정적으로 분리해내는 '범용 모델(General-purpose Model)'의 정밀도를 끌어올리는 것**이 최종 목표입니다. 
@@ -25,5 +25,5 @@
 
 ## 3. Training Pipeline (향후 진행 로직)
 1.  **데이터 로더 구성**: 커스텀 데이터와 범용 데이터를 혼합 출력하는 PyTorch `Dataset` 및 `DataLoader` 모듈 작성.
-2.  **모델 레이어 세팅**: `htdemucs_two_stems` 사전 학습 가중치 로드 및 특정 레이어 `requires_grad = False` 처리.
+2.  **모델 레이어 세팅**: `htdemucs` 사전 학습 가중치 로드 및 특정 레이어 `requires_grad = False` 처리.
 3.  **지표 트래킹**: Weights & Biases (W&B)를 연동하여 에포크(Epoch)별 Loss 및 분리 지표 실시간 시각화.

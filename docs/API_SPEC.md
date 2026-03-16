@@ -18,7 +18,7 @@
 ### Request Parameters
 | Name | Type | In | Required | Description |
 | :--- | :--- | :--- | :---: | :--- |
-| `file` | file | formData | **Yes** | 분석할 오디오 파일 (`.wav`, `.mp3` 등). **최대 10MB 제한.** |
+| `file` | file | formData | **Yes** | 분석할 오디오 파일 (`.wav`, `.mp3` 등). **최대 50MB 제한.** |
 
 ### Responses
 
@@ -71,34 +71,26 @@
 ```json
 {
   "status": "SUCCESS",
-  "data": {
-    "status": "SUCCESS",
-    "bpm": 125.0,
-    "ascii_tab": "🎸 Quantized Bass Tab (BPM: 125)\n\nG |--------------------------------|\nD |---0-------------------0---0----|\nA |--------------------------------|\nE |-----------------------------3--|\n",
-    "metadata": {
-      "task_id": "550e8400-e29b-41d4-a716-446655440000",
-      "model_version": "demucs-htdemucs-v4.1_crepe-tiny",
-      "processing_time_ms": 14520.35
-    },
-    "events": [
-      {
-        "start_time": 0.08,
-        "duration": 0.0,
-        "midi_note": 38,
-        "string_idx": 2,
-        "fret": 0,
-        "confidence": 0.985
-      },
-      {
-        "start_time": 1.74,
-        "duration": 0.0,
-        "midi_note": 31,
-        "string_idx": 0,
-        "fret": 3,
-        "confidence": 0.872
-      }
-    ]
-  }
+  "bpm": 125.0,
+  "ascii_tab": "🎸 Quantized Bass Tab (BPM: 125)\n...",
+  "metadata": {
+    "task_id": "550e8400-e29b-41d4-a716-446655440000",
+    "model_version": "demucs-htdemucs-v4.1_crepe-tiny",
+    "processing_time_ms": 14520.35,
+    "bass_audio_url": "/api/v1/downloads/550e8400.../bass",
+    "bassless_audio_url": "/api/v1/downloads/550e8400.../bassless",
+    "midi_url": "/api/v1/downloads/550e8400....mid"
+  },
+  "events": [
+    {
+      "start_time": 0.08,
+      "duration": 0.96,
+      "midi_note": 38,
+      "string_idx": 2,
+      "fret": 0,
+      "confidence": 0.985
+    }
+  ]
 }
 ```
 
@@ -110,8 +102,8 @@
 
 | Field | Type | Description |
 | :--- | :--- | :--- |
-| `start_time` | float | 물리적 오디오 기준 노트 발생 시간 (초 단위, ex: `1.74`) |
-| `duration` | float | (예약됨) 노트의 지속 시간 (현재는 기본값 `0.0` 할당) |
+| `start_time` | float | 물리적 오디오 기준 노트 발생 시간 (초 단위, ex: `0.08`) |
+| `duration` | float | (예약됨) 노트의 지속 시간 (PitchParser의 디바운싱 프레임 기반 역산, ex: 0.96) |
 | `midi_note` | int | 추출된 피치의 표준 MIDI 노트 번호 (ex: E1 = `28`) |
 | `string_idx` | int | 운지할 베이스 현의 인덱스 (**`0` = 4번줄 E현**, `1` = 3번줄 A현, `2` = 2번줄 D현, `3` = 1번줄 G현) |
 | `fret` | int | 운지할 프렛 번호 (`0` = 개방현, `1~24` = 프렛) |
