@@ -20,7 +20,7 @@ class PitchParser:
         if not candidates: return None
         return min(candidates, key=lambda x: x[1])
 
-    # [Fix] confidence_array 파라미터 추가
+    # [Fix] confidence_array 파라미터 추가 및 duration 데이터 복원 병합
     def parse_f0_to_events(self, f0_array: np.ndarray, confidence_array: np.ndarray, min_duration_frames: int = 5, tolerance_frames: int = 3) -> List[NoteEvent]:
         events = []
         frame_time = self.hop_length / self.sr
@@ -40,37 +40,39 @@ class PitchParser:
                     current_note = midi_note
                     note_start_frame = i
                 elif current_note != midi_note:
-                    duration = i - note_start_frame
-                    if duration >= min_duration_frames:
-                        # [Fix] 노트 구간 내 신뢰도 평균 계산
+                    duration_frames = i - note_start_frame
+                    if duration_frames >= min_duration_frames:
+                        # 신뢰도(conf)와 지속시간(duration) 모두 계산
                         conf = float(np.mean(confidence_array[note_start_frame:i]))
-                        events.append(self._create_event(current_note, note_start_frame * frame_time, conf))
+                        duration_sec = float(duration_frames * frame_time) 
+                        events.append(self._create_event(current_note, note_start_frame * frame_time, duration_sec, conf))
                     current_note = midi_note
                     note_start_frame = i
             else:
                 blank_counter += 1
                 if current_note is not None and blank_counter >= tolerance_frames:
                     end_idx = i - blank_counter
-                    duration = end_idx - note_start_frame
-                    if duration >= min_duration_frames:
-                        # [Fix] 노트 구간 내 신뢰도 평균 계산
+                    duration_frames = end_idx - note_start_frame
+                    if duration_frames >= min_duration_frames:
                         conf = float(np.mean(confidence_array[note_start_frame:end_idx]))
-                        events.append(self._create_event(current_note, note_start_frame * frame_time, conf))
+                        duration_sec = float(duration_frames * frame_time) 
+                        events.append(self._create_event(current_note, note_start_frame * frame_time, duration_sec, conf))
                     current_note = None
                     
         if current_note is not None:
             end_idx = len(midi_array)
-            duration = end_idx - note_start_frame
-            if duration >= min_duration_frames:
+            duration_frames = end_idx - note_start_frame
+            if duration_frames >= min_duration_frames:
                 conf = float(np.mean(confidence_array[note_start_frame:end_idx]))
-                events.append(self._create_event(current_note, note_start_frame * frame_time, conf))
+                duration_sec = float(duration_frames * frame_time) 
+                events.append(self._create_event(current_note, note_start_frame * frame_time, duration_sec, conf))
 
         return events
 
-    # [Fix] confidence 매개변수 추가 및 NoteEvent에 주입
-    def _create_event(self, midi_note: int, time_sec: float, confidence: float) -> NoteEvent:
+    # [Fix] duration_sec, confidence 매개변수 추가 및 NoteEvent에 명시적 주입
+    def _create_event(self, midi_note: int, time_sec: float, duration_sec: float, confidence: float) -> NoteEvent:
         candidates = self.get_fret_candidates(librosa.midi_to_hz(midi_note))
         pos = self.choose_fret_greedy(candidates)
         if pos:
-            return NoteEvent(time=time_sec, midi_note=midi_note, string_idx=pos[0], fret=pos[1], confidence=confidence)
-        return NoteEvent(time=time_sec, midi_note=midi_note, confidence=confidence)
+            return NoteEvent(time=time_sec, duration=duration_sec, midi_note=midi_note, string_idx=pos[0], fret=pos[1], confidence=confidence)
+        return NoteEvent(time=time_sec, duration=duration_sec, midi_note=midi_note, confidence=confidence)
