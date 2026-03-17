@@ -17,7 +17,7 @@
 
 ---
 
-## 2. Technical Pipeline (Phase 2, 3, 4 Architecture)
+## 2. Technical Pipeline (Phase 2 ~ 5 Architecture)
 
 현재 파이프라인은 다음 6단계로 고도화되었습니다.
 
@@ -50,6 +50,14 @@
 - **BPM Tracking & PLP:** 베이스 라인의 빈번한 당김음(Syncopation)으로 인한 정박(Downbeat) 오판을 방지하기 위해, 400Hz 이하 대역의 Onset Envelope를 추출하고 PLP(Predominant Local Pulse)를 적용합니다. 극단적 엇박으로 모델이 BPM을 탐지하지 못할 경우, 데이터 무결성 오염을 막기 위해 억지 양자화(120 BPM 강제 할당 등)를 생략하고 원본 물리적 시간(Unquantized Time)을 그대로 보존(Bypass)합니다.
 - **Grid Snapping (Euclidean Distance):** 추정된 BPM을 기반으로 16분음표 길이의 시간 격자(Time Grid, $\Delta t$)를 산출. 각 노트의 물리적 발생 시간($t_i$)을 유클리드 거리가 최소화되는 수식($k_i^* = \text{round}(t_i / \Delta t)$)을 통해 가장 가까운 16분음표 격자에 강제 할당(Quantize). 동일 격자 내 다중 노트 소실 방지를 위해 리스트(List) 기반 누적 아키텍처 적용.
 - **Immutable Pipeline (Layered Architecture):** 가변 딕셔너리로 인한 상태 오염과 God Object 안티패턴을 해결하기 위해, `NoteEvent` 불변 데이터 클래스(Dataclass, `frozen=True`)를 도입. 모듈 네임스페이스 충돌을 방지하기 위해 표현 계층(Presentation Layer)을 `renderers/` 패키지로 완전히 분리하여 `Parser` $\rightarrow$ `Fingering` $\rightarrow$ `Quantization` $\rightarrow$ `Renderer` 로 이어지는 단방향 함수형 파이프라인 완성 (`v1.0.0-alpha`).
+
+### Step 7: MIDI Export & Web Integration (Phase 5)
+- **Physical-Time MIDI Rendering (`MidiRenderer`):**
+  - **정밀한 Offset 동기화 (Unquantized):** 타브 악보 렌더링 시 적용되는 16분음표 격자 양자화(Quantization) 로직을 MIDI 추출에서는 의도적으로 배제함. `PitchParser`가 디바운싱(Debouncing) 프레임으로부터 역산한 정확한 물리적 발생 시간(`time`)과 **지속 시간(`duration`)**을 신뢰하여, 기계적인 스냅(Snap) 없이 실제 연주의 그루브와 종료점(Offset)이 그대로 보존된 `note_off` 이벤트를 기록.
+  - **Velocity 매핑:** CREPE 모델이 산출한 피치 예측 **신뢰도(`confidence`)**를 MIDI의 타건 강도(`velocity`, 64~127)로 스케일링하여 맵핑함으로써, 불확실한 노트(고스트 노트, 노이즈)를 DAW에서 시각적/청각적으로 쉽게 필터링할 수 있는 확장성 확보.
+- **Asynchronous Web Architecture (FastAPI + Streamlit):**
+  - **Backend (Concurrency & Serving):** 무거운 딥러닝 추론으로 인한 단일 노드(Single Node) 서버의 OOM(메모리 초과)을 방지하기 위해, `asyncio.Semaphore(1)`를 통한 GPU 작업 직렬화와 `BackgroundTasks`를 결합함. 클라이언트에게는 즉시 `HTTP 202 Accepted`와 `task_id`를 반환하고, 최종 산출물은 `StaticFiles` 라우터를 통해 정적 서빙(Static Serving)함.
+  - **Frontend (Stateful Polling):** Streamlit의 잦은 UI 재렌더링으로 인한 API 중복 호출을 방어하기 위해, `st.session_state`를 활용하여 작업 ID와 상태를 캐싱(Caching)함. 서버 응답을 2초 주기로 비동기 폴링하며, Demucs의 디렉토리 생성 규칙(특수문자 정규화)을 프론트엔드 URL 조합기에 동기화하여 404 Broken Link 에러를 원천 차단함.
 
 ---
 
@@ -94,6 +102,11 @@ E |---------------------------------------------3--|---------3-----4-----3------
 | **VRAM 동기화 병목 (추론 속도 저하)** | `tracker.py`의 Chunking 루프 내에서 매번 `torch.cuda.empty_cache()`를 호출하여 PyTorch의 메모리 할당자(Allocator)를 강제 동기화시킴. | 루프 내 캐시 비우기를 제거하고, `try-except RuntimeError`를 활용한 **Dynamic Batching** 로직을 도입. 실제 OOM 발생 시에만 배치 사이즈를 절반으로 줄이고 캐시를 비우도록 최적화하여 정상 상태의 추론 속도 극대화. |
 | **기형적 하이 프렛 도약 (Blind Jump)** | 기존 Viterbi 비용 수식이 개방현에서 하이 프렛으로 이동할 때의 난이도를 단순 선형(Linear)으로 계산하여 물리적 한계를 반영하지 못함. | 이동 프렛이 7프렛을 초과할 경우 지수적(Exponential) 페널티를 부과하는 **비선형 생체역학 수학 모델(`max(0, f2 - 7)**1.5`)**로 수식 교정. |
 | **BPM 탐지 실패 시 빈 악보 렌더링 (Empty Tab)** | 양자화가 생략되어 `grid_index`가 `None`인 상태로 렌더러에 진입하면, 노트가 악보에 렌더링되지 않고 증발함. | `TabRenderer`에 **시간 비례 기반 가상 격자(Virtual Grid) Fallback 로직** 추가. 1초를 10칸(100ms 단위)으로 강제 매핑하여 박자가 없는 오디오라도 물리적 간격에 맞춰 ASCII 악보를 출력하도록 방어. |
+| **Phase 5 (MIDI Export & Web UI)** | | |
+| **MIDI Note-Off 휴리스틱 한계 (Sustain Error)** | 원본 파서(Parser)에서 노트의 종료 시간(Duration) 데이터를 누락하여, MIDI 렌더링 시 다음 노트가 시작될 때까지 이전 음이 강제로 이어지는(Legato) 부자연스러운 서스테인 발생. | `PitchParser`의 디바운싱 로직에서 프레임 기반의 정확한 **물리적 지속 시간(초 단위)**을 역산하여 불변 객체 `NoteEvent`에 명시적으로 주입. MIDI `note_off` 타이밍을 실제 연주와 동기화. |
+| **Streamlit UI 상태 증발 및 중복 호출** | 버튼 클릭이나 폴링 대기 중 Streamlit 특유의 전체 화면 재렌더링 현상으로 인해 백엔드 API가 중복 호출되거나 작업 상태가 증발함. | **`st.session_state`**를 활용하여 발급받은 `task_id`와 최종 `result_data`를 캐싱(Caching)하고, 비동기 폴링 루프를 상태 기반으로 격리하여 서버 자원 고갈 방어. |
+| **Infinite 404 Polling (Path Fragmentation)** | 백엔드는 결과물을 `app/outputs/`에 저장하고, 폴링 라우터와 프론트엔드는 프로젝트 루트의 `outputs/`를 바라보는 디렉토리 파편화 발생으로 영구적인 타임아웃 발생. | 저장소 경로를 최상단 `outputs/`로 강제 통합(**SSOT 구축**)하고, 라우터 주소(`/tasks`)와 프론트엔드 호출 규약을 완벽히 일치시킴. |
+| **오디오 서빙 404 (특수문자 정규화 충돌)** | 업로드된 파일명에 괄호 `()`나 공백 등 특수문자가 포함될 경우, Demucs가 이를 내부적으로 언더스코어(`_`)로 치환하여 저장하면서 프론트엔드의 다운로드 URL과 실제 경로가 불일치함. | 프론트엔드(`app.py`)에 **정규표현식(`re.sub`)** 헬퍼 로직을 추가하여, 클라이언트 단에서 Demucs의 디렉토리 생성 규칙을 똑같이 모방(Mocking)하도록 URL 조합 규약 동기화. |
 ---
 
 ## 5. Future Works (Roadmap)
