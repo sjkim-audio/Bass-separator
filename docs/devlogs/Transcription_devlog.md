@@ -6,14 +6,15 @@
 > Phase 3 Completed (Smart Tablature Generation & Optimization)
 > Phase 4 Completed (Rhythmic Quantization & Pipeline Modularization)
 > Phase 5 Completed (MIDI Export & Streamlit Web UI Integration)
-> Phase 6 Planned (Algorithm Fine-Tuning & Articulation Detection)
+> Phase 6 Completed (DSP Fine-Tuning & Symbolic Post-Processing)
+> Phase 7 Planned (Rhythmic Quantizer & Viterbi Algorithm Refinement)
 
 ## 1. Overview
 이 프로젝트는 믹스된 오디오에서 베이스를 분리하고 **실제 연주 가능한 타브 악보(ASCII Tab)**를 생성하는 End-to-End 파이프라인입니다. 
 
-초기(Phase 1)에는 `librosa.pyin`을 사용했으나, 분리된 베이스 음원(Stem)의 낮은 음질과 노이즈로 인해 정확도가 떨어지는 한계가 있었습니다. 현재(Phase 2)는 **SOTA 딥러닝 모델인 CREPE**를 도입하고, 베이스에 특화된 전/후처리(Pre/Post-processing) 로직을 통해 피치 인식률을 비약적으로 향상시켰습니다. 나아가 물리적 연주 가능성(Playability)을 고려한 최적 운지법 추천 모델(Phase 3)을 거쳐, 오디오의 물리적 시간을 음악적 박자(16분음표 격자)로 정렬하는 **리듬 양자화(Phase 4)**를 달성했습니다. 전체 시스템은 유지보수와 확장을 위해 불변 데이터 파이프라인(Immutable Data Pipeline)으로 재설계되었습니다.
+초기(Phase 1)에는 `librosa.pyin`을 사용했으나, 분리된 베이스 음원(Stem)의 낮은 음질과 노이즈로 인해 정확도가 떨어지는 한계가 있었습니다. 현재(Phase 2)는 **SOTA 딥러닝 모델인 CREPE**를 도입하고, 베이스에 특화된 전/후처리(Pre/Post-processing) 로직을 통해 피치 인식률을 비약적으로 향상시켰습니다. 나아가 물리적 연주 가능성(Playability)을 고려한 최적 운지법 추천 모델(Phase 3)을 거쳐, 오디오의 물리적 시간을 음악적 박자(16분음표 격자)로 정렬하는 **리듬 양자화(Phase 4)**를 달성했습니다. 전체 시스템은 유지보수와 확장을 위해 불변 데이터 파이프라인(Immutable Data Pipeline)으로 재설계되었습니다. 최근(Phase 5)에는 추출된 원시 노트 이벤트(NoteEvent) 배열을 활용하여 물리적 타이밍과 운지법이 보존된 **표준 `.mid` (MIDI) 파일 렌더링 로직**을 신설하고, REST API와 연동되는 **Streamlit 기반의 시각화 프론트엔드 웹 데모**를 구축하여 사용자 접근성과 데이터 출력 다각화를 완수했습니다.
 
-최근(Phase 5)에는 추출된 원시 노트 이벤트(NoteEvent) 배열을 활용하여 물리적 타이밍과 운지법이 보존된 **표준 `.mid` (MIDI) 파일 렌더링 로직**을 신설하고, REST API와 연동되는 **Streamlit 기반의 시각화 프론트엔드 웹 데모**를 구축하여 사용자 접근성과 데이터 출력 다각화를 완수했습니다.
+최근(Phase 6)에는 피치 트래커(CREPE)와 파서(Parser)의 하이퍼파라미터를 튜닝하여 저음역대 연타 인식률과 슬랩(Slap) 주법의 옥타브 에러를 개선했습니다. 오디오 신호(Signal) 영역에서의 파라미터 튜닝이 수확 체감(Law of Diminishing Returns)에 도달했음을 인지하고, 기호(Symbolic/MIDI) 영역에서의 휴리스틱 후처리 필터를 도입하여 플럭(Pluck) 노이즈를 제압하는 최적의 타협점(Golden State) 파이프라인을 확정했습니다. ([자세한 파라미터 튜닝 실험 일지는 pitch_track_tunning_devlog.md 참조](./pitch_track_tunning_devlog.md))
 
 ---
 
@@ -58,6 +59,11 @@
 - **Asynchronous Web Architecture (FastAPI + Streamlit):**
   - **Backend (Concurrency & Serving):** 무거운 딥러닝 추론으로 인한 단일 노드(Single Node) 서버의 OOM(메모리 초과)을 방지하기 위해, `asyncio.Semaphore(1)`를 통한 GPU 작업 직렬화와 `BackgroundTasks`를 결합함. 클라이언트에게는 즉시 `HTTP 202 Accepted`와 `task_id`를 반환하고, 최종 산출물은 `StaticFiles` 라우터를 통해 정적 서빙(Static Serving)함.
   - **Frontend (Stateful Polling):** Streamlit의 잦은 UI 재렌더링으로 인한 API 중복 호출을 방어하기 위해, `st.session_state`를 활용하여 작업 ID와 상태를 캐싱(Caching)함. 서버 응답을 2초 주기로 비동기 폴링하며, Demucs의 디렉토리 생성 규칙(특수문자 정규화)을 프론트엔드 URL 조합기에 동기화하여 404 Broken Link 에러를 원천 차단함.
+
+### Step 8: DSP Fine-Tuning & Symbolic Culling (Phase 6)
+- **Confidence-Aware Retriggering:** 부드러운 동일 피치 연타 시 진폭(Amplitude) 변화가 거의 없는 베이스의 특성을 극복하기 위해, 예측 신뢰도(Confidence)의 미세한 하락(Dip, `< 0.5`)을 타격 지표로 삼아 노트를 강제 분할하는 파서 상태 머신 고도화.
+- **Latency & Onset Mask Rollback:** 연타 인식률을 높이기 위한 고주파 예민 마스크(High-freq Flux) 및 강제 신호 삭제(Transient Muting) 시도가 전체 그루브와 어택(Attack)을 훼손함을 증명(ADR 참조). 이에 따라 저주파 기반의 안정적인 마스크(`fmax=400Hz`)로 롤백하고, 5ms의 휴리스틱 지연 보정(`LATENCY_COMP_SEC`)을 적용하여 최적의 타이밍 밸런스 도출.
+- **Garbage Pitch Culling (MIDI Post-Processor):** 슬랩의 플럭(Pluck) 주법 시 발생하는 40ms 구간의 비화성 노이즈를 AI가 가짜 고음으로 추론하는 "띠-딩(Double-triggering)" 현상 해결. 오디오 신호를 훼손하지 않고, 추출 완료된 MIDI 이벤트 리스트에서 극단적으로 짧고 피치 도약이 큰 노이즈 패턴을 기계적으로 병합(Merge)하는 기호 영역 후처리 도입.
 
 ---
 
@@ -107,6 +113,10 @@ E |---------------------------------------------3--|---------3-----4-----3------
 | **Streamlit UI 상태 증발 및 중복 호출** | 버튼 클릭이나 폴링 대기 중 Streamlit 특유의 전체 화면 재렌더링 현상으로 인해 백엔드 API가 중복 호출되거나 작업 상태가 증발함. | **`st.session_state`**를 활용하여 발급받은 `task_id`와 최종 `result_data`를 캐싱(Caching)하고, 비동기 폴링 루프를 상태 기반으로 격리하여 서버 자원 고갈 방어. |
 | **Infinite 404 Polling (Path Fragmentation)** | 백엔드는 결과물을 `app/outputs/`에 저장하고, 폴링 라우터와 프론트엔드는 프로젝트 루트의 `outputs/`를 바라보는 디렉토리 파편화 발생으로 영구적인 타임아웃 발생. | 저장소 경로를 최상단 `outputs/`로 강제 통합(**SSOT 구축**)하고, 라우터 주소(`/tasks`)와 프론트엔드 호출 규약을 완벽히 일치시킴. |
 | **오디오 서빙 404 (특수문자 정규화 충돌)** | 업로드된 파일명에 괄호 `()`나 공백 등 특수문자가 포함될 경우, Demucs가 이를 내부적으로 언더스코어(`_`)로 치환하여 저장하면서 프론트엔드의 다운로드 URL과 실제 경로가 불일치함. | 프론트엔드(`app.py`)에 **정규표현식(`re.sub`)** 헬퍼 로직을 추가하여, 클라이언트 단에서 Demucs의 디렉토리 생성 규칙을 똑같이 모방(Mocking)하도록 URL 조합 규약 동기화. |
+| **Phase 6 (DSP Tuning & Symbolic Culling)** | | |
+| **Root Note 연타 인식 불가 (Legato 오인)** | 부드러운 8비트/16비트 근음 연타 시, 전체 볼륨(Amplitude) 포락선의 변화가 미미하여 Onset 탐지기가 타격점을 놓침. | 진폭 대신 **예측 신뢰도(Confidence)의 순간적 하락(<0.5)을 Feature로 활용**하여 노트를 분할하는 `Confidence-Aware Retriggering` 상태 머신 로직 신설. (80% 복구 완료) |
+| **슬랩 옥타브 보정기 오작동 및 초고음 발생** | 연타 감지를 위해 Onset 탐지기를 고주파 대역(fmin=500)으로 예민하게 튜닝하자, 일반적인 핑거링 찰과음을 슬랩 타격으로 오진하여 배음 에러를 무사통과시킴. | 단일 마스크 구조의 한계를 인정하고, 옥타브 보정용 Onset 마스크를 둔감한 **저음역대 기반(fmax=400Hz, delta=0.06)으로 롤백**하여 안정성(Golden State) 우선 확보. |
+| **플럭 주법의 2단 튀김 ("띠-딩" 현상)** | 플럭(Pluck) 타격 직후 30~40ms의 배음 붕괴 구간에서 CREPE 모델이 터무니없는 고음(Garbage Pitch)을 뱉어내어 2개의 독립된 노트로 파싱됨. | 신호 결측(Muting) 방식이 정상 어택까지 훼손하는 부작용을 확인한 후, 파싱이 완료된 기호 영역에서 **짧은 지속 시간(<60ms)과 극단적 피치 도약(>5반음)을 감지해 강제 삭제/병합하는 MIDI Post-Processor** 도입. |
 ---
 
 ## 5. Future Works (Roadmap)
@@ -119,5 +129,7 @@ E |---------------------------------------------3--|---------3-----4-----3------
 - [x] **Clean Architecture Integration:** FastAPI 백엔드와 코어 파이프라인(`src/core/pipeline.py`)을 완벽히 격리하고 비동기 폴링을 위한 JSON DTO 응답 규격 정립.
 - [x] **MIDI Export (Phase 5):** 추출된 이벤트 데이터를 순회하며 물리적 타이밍(Delta Time)과 운지법이 보존된 표준 `.mid` 파일 추출 로직(`MidiRenderer`) 구현 완료.
 - [x] **Streamlit / Web UI Dashboard:** 클라이언트가 `202 Accepted` 응답 후 `task_id`를 기반으로 비동기 폴링하여 최종 타브 악보, 음원 렌더링 및 MIDI를 다운로드할 수 있는 MVP 프론트엔드 구축 완료.
+- [x] **Model Fine-Tuning (Phase 6):** 파라미터 튜닝의 수확 체감 구간 도달을 선언하고, DSP 튜닝을 동결(Freeze)한 뒤 기호 영역(Symbolic) 후처리 필터로 플럭 노이즈 등 치명적 에러 방어 완료.
+- [ ] **Residual Noise Filtering via Downstream (Phase 7):** DSP 튜닝 한계로 인해 잔존하는 극단적 슬라이딩 파편화("띠리링") 노이즈를 `Rhythmic Quantizer`의 16분음표 그리드 스냅과 `Viterbi Fingering`의 생체역학적 비용(Cost) 함수를 통해 기계적으로 소거하는 하류(Downstream) 파이프라인 고도화 진행 예정.
 - [ ] **Articulation Detection & Offset Heuristics (Quality):** 슬라이드(Slide), 해머링 온/풀오프(Hammer-on/Pull-off) 감지 및 CREPE 모델의 Offset(음 종료점) 추적 한계를 보완하여 질척이는 음(Sustain)을 깔끔하게 커팅하는 휴리스틱 로직 개발.
 - [ ] **Model Fine-Tuning (Phase 6):** 실제 베이스 연주-악보 페어(Pair) 데이터셋을 구축하여, 피치 트래커의 인식률 및 Viterbi 운지법 전이 확률(Transition Matrix)을 베이스 기타 도메인에 완벽히 특화되도록 재학습.
