@@ -5,10 +5,11 @@ import scipy.signal
 import torch
 import torchcrepe
 
-def clean_octave_errors_smart(f0_array, onset_mask, window_size=7, onset_tolerance=2):
+def clean_octave_errors_smart(f0_array, onset_mask, window_size=7, onset_tolerance=4):
     """
     [Error Correction] Onset 기반 스마트 옥타브 오류 보정
     어택 부근의 도약은 보존하고, 지속음 구간의 도약만 강제 보정.
+    [Phase 6 Tuning] onset_tolerance를 2에서 4(40ms)로 상향하여 타격 지연 보정.
     """
     f0_clean = f0_array.copy()
     mask = (f0_clean > 0) & (~np.isnan(f0_clean))
@@ -44,16 +45,17 @@ def clean_octave_errors_smart(f0_array, onset_mask, window_size=7, onset_toleran
     f0_clean[mask] = librosa.midi_to_hz(midi_notes[mask])
     return f0_clean
 
-def get_f0_crepe_robust(audio, sr, hop_length=160, fmin=40, fmax=500, smooth_kernel=3, chunk_duration=30, model_capacity='tiny', batch_size=512):
+def get_f0_crepe_robust(audio, sr, hop_length=160, fmin=40, fmax=500, chunk_duration=30, model_capacity='tiny', batch_size=512):
     """
     [Main Pipeline] 프로덕션 환경에 최적화된 베이스 전용 피치 트래커 (CREPE)
+    [Phase 6 Tuning] smooth_kernel 파라미터 폐기 (어택 스미어링 방지).
     """
     sos = scipy.signal.butter(4, 35, 'hp', fs=sr, output='sos')
     audio = scipy.signal.sosfilt(sos, audio)
     audio = audio.astype(np.float32)
 
     if np.max(np.abs(audio)) < 1e-6:
-        return np.zeros(len(audio) // hop_length) 
+        return np.zeros(len(audio) // hop_length), np.zeros(len(audio) // hop_length) 
     audio = librosa.util.normalize(audio)
 
     if torch.cuda.is_available():
@@ -80,7 +82,6 @@ def get_f0_crepe_robust(audio, sr, hop_length=160, fmin=40, fmax=500, smooth_ker
 
         audio_tensor = torch.tensor(audio_chunk).unsqueeze(0).to(device)
         
-        # [교정] Dynamic Batching 및 OOM 예외 처리
         current_batch = batch_size
         success = False
         
@@ -93,7 +94,6 @@ def get_f0_crepe_robust(audio, sr, hop_length=160, fmin=40, fmax=500, smooth_ker
                 )
                 success = True
             except RuntimeError as e:
-                # OOM 발생 시에만 예외적으로 캐시 정리 및 배치 사이즈 축소
                 if "out of memory" in str(e).lower():
                     if current_batch <= 1:
                         raise RuntimeError("❌ CUDA OOM: 배치 사이즈를 1까지 줄였으나 메모리가 부족합니다. chunk_duration을 줄이십시오.")
@@ -102,7 +102,7 @@ def get_f0_crepe_robust(audio, sr, hop_length=160, fmin=40, fmax=500, smooth_ker
                     if device == 'cuda':
                         torch.cuda.empty_cache()
                 else:
-                    raise e # OOM이 아닌 다른 런타임 에러는 그대로 던짐
+                    raise e 
         
         f0_list.append(f0_chunk.squeeze().cpu().numpy())
         confidence_list.append(conf_chunk.squeeze().cpu().numpy())
@@ -118,21 +118,25 @@ def get_f0_crepe_robust(audio, sr, hop_length=160, fmin=40, fmax=500, smooth_ker
     f0 = f0[:expected_frames]
     confidence = confidence[:expected_frames]
 
-    onset_env = librosa.onset.onset_strength(y=audio, sr=sr, hop_length=hop_length)
-    onset_frames = librosa.onset.onset_detect(onset_envelope=onset_env, sr=sr, hop_length=hop_length)
+    # 🔴 [Phase 6 Tuning: Test 9 Golden State 마스크 생성 로직 이식] 🔴
+    # fmax=400, delta=0.06 설정으로 슬랩 옥타브 에러 방어 및 안정성 확보
+    onset_env = librosa.onset.onset_strength(y=audio, sr=sr, hop_length=hop_length, fmax=400, aggregate=np.median)
+    onset_frames = librosa.onset.onset_detect(onset_envelope=onset_env, sr=sr, hop_length=hop_length, wait=3, pre_avg=3, post_avg=3, delta=0.06)
     
     onset_mask = np.zeros(len(f0), dtype=bool)
     valid_onsets = onset_frames[onset_frames < len(f0)]
     onset_mask[valid_onsets] = True
 
-    if smooth_kernel > 1:
-        f0_series = pd.Series(f0)
-        f0 = f0_series.rolling(window=smooth_kernel, center=True, min_periods=1).median().values
+    # 옥타브 보정에 안정화된 onset_mask 주입 (window_size=7, onset_tolerance=4)
+    f0 = clean_octave_errors_smart(f0, onset_mask, window_size=7, onset_tolerance=4)
 
-    f0 = clean_octave_errors_smart(f0, onset_mask, window_size=7, onset_tolerance=2)
-    f0[confidence < 0.15] = np.nan 
+    # 🔴 [Phase 6 Tuning: 노이즈 게이트 임계값 교체] 🔴
+    mask_low = (f0 < 80) & (confidence < 0.2)
+    mask_mid = (f0 >= 80) & (f0 <= 200) & (confidence < 0.4)
+    mask_high = (f0 > 200) & (confidence < 0.6)
 
-    # [수정됨] 조기 양자화 제거. 베이스 음역대를 벗어나는 초고주파 노이즈만 컷오프
-    f0[f0 > 200] = np.nan
+    f0[mask_low | mask_mid | mask_high] = np.nan
+    f0[f0 > fmax] = np.nan
 
-    return f0, confidence
+    # [주의] 이 모듈에서는 f0, confidence와 함께 onset_mask도 반환해야 Parser에서 연타 분할을 할 수 있음
+    return f0, confidence, onset_mask
