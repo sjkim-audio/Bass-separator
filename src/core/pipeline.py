@@ -20,11 +20,13 @@ def run_transcription_pipeline(audio_path: str) -> Tuple[str, float, List[NoteEv
     y, _ = librosa.load(audio_path, sr=sr, mono=True)
     
     # 2. 피치 및 신뢰도 추적 (CREPE)
-    f0_array, confidence_array = get_f0_crepe_robust(y, sr=sr, hop_length=hop_length)
+    # 🔴 [수정] 튜닝 결과에 따라 onset_mask 반환값을 추가로 받음
+    f0_array, confidence_array, onset_mask = get_f0_crepe_robust(y, sr=sr, hop_length=hop_length)
     
     # 3. 이벤트 파싱 (PitchParser 인스턴스화)
     parser = PitchParser(sr=sr, hop_length=hop_length)
-    raw_events = parser.parse_f0_to_events(f0_array, confidence_array)
+    # 🔴 [수정] onset_mask를 파서에 주입하여 연타 분할 기능 활성화
+    raw_events = parser.parse_f0_to_events(f0_array, confidence_array, onset_mask)
     
     # 4. 최적 운지법 계산 (ViterbiSmartFingering 인스턴스화 및 decode 호출)
     viterbi_decoder = ViterbiSmartFingering()
