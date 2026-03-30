@@ -39,13 +39,13 @@
 
 - [x] **Smart Fingering Model (Viterbi):** 동적 계획법(HMM)을 도입하여 손의 수평/수직 이동 비용(Cost)을 최소화하는 최적의 프렛-현(Fret-String) 맵핑 도출 및 하이 프렛 도약 비선형 페널티 적용.
 - [x] **ASCII Tablature Rendering:** 클라이언트 요청 시 정량적 16분음표 격자로 스냅(Snap)하여 시각적 가독성을 확보하는 가로형 텍스트 악보 렌더링 및 충돌 병합 로직 적용.
-- [ ] **Unquantized MIDI Export:** 16분음표 강제 양자화를 배제하고, 추출된 밀리초 단위의 미세한 리듬(Micro-timing)과 다이내믹스를 온전히 보존한 표준 `.mid` 파일 생성.
+- [x] **Unquantized MIDI Export:** 16분음표 강제 양자화를 배제하고, 추출된 밀리초 단위의 미세한 리듬(Micro-timing)과 다이내믹스를 온전히 보존한 표준 `.mid` 파일 생성.
 
 ### Phase 5. 도메인 시각화 및 배포 (Visualization & Deployment)
 > **Status:** Planned
 > **Goal:** 분석된 오디오 데이터를 직관적으로 검증하고 시각화한다.
 
-- [ ] **Streamlit 대시보드 구축:** 파이썬 기반의 웹 UI를 통해 오디오 업로드 및 Polling 인터페이스 구현. 3초 주기로 `GET /status/{task_id}`를 호출하여 서버 디스크 상태 확인.
+- [x] **Streamlit 대시보드 구축:** 파이썬 기반의 웹 UI를 통해 오디오 업로드 및 Polling 인터페이스 구현. 3초 주기로 `GET /status/{task_id}`를 호출하여 서버 디스크 상태 확인.
 - [ ] **오디오 도메인 시각화:** 반환된 JSON DTO를 파싱하여 Librosa 기반의 스펙트로그램(Spectrogram), 피아노 롤(Piano Roll), Confidence 분포도를 화면에 렌더링.
 - [x] **문서화:** 전체 아키텍처 한계 방어 논리(`Strategic_Tradeoffs_and_Limitations.md`) 문서화 완료.
 

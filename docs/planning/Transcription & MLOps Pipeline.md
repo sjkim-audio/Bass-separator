@@ -10,7 +10,7 @@
   * Onset Detection 해상도를 밀리초(ms) 단위로 극대화하여 슬랩, 셔플 등 연주의 미세한 타이밍(Micro-timing)을 그대로 보존하는 Unquantized MIDI 추출.
   * 보존된 물리적 시간을 기반으로 Viterbi 최적 운지법 디코딩 수행.
 * **1.3. 표준화된 데이터 컨트랙트(DTO) 구현 (Enhanced):**
-  * **MLOps 메타데이터 통합:** 파인튜닝 모델 버저닝 및 Training-Serving Skew 추적을 위해 `TranscriptionMetadata` 계층 신설 (사용 모델 버전, 연산 소요 시간, 오디오 속성 포함).
+  * **MLOps 메타데이터 및 정적 서빙 통합:** 파인튜닝 모델 버저닝 추적을 위해 `TranscriptionMetadata` 계층을 신설하고, 클라이언트가 오디오(Bass, MR)와 MIDI 결과물을 즉시 다운로드할 수 있도록 FastAPI 정적 파일 서빙(StaticFiles) URL을 DTO에 내장.
   * **신뢰도(Confidence) 지표 보존:** CREPE 모델의 예측 확률을 보존하여 프론트엔드에서 고스트 노트 및 불확실 구간의 시각적 렌더링(투명도 조절 등)을 지원.
   * **직렬화 오버헤드 방어:** `start_time`, `duration` 등 부동소수점 데이터는 Pydantic `@field_validator`를 통해 소수점 3자리(밀리초)로 강제 반올림하여 Redis 큐 및 네트워크 페이로드 팽창 억제.
 
@@ -47,5 +47,5 @@
 
 * **4.1. 프로그래매틱 데이터 합성:** 타 악기(MR)와 베이스 소스를 시간축 오류 없이 자동 믹싱 및 증강하는 파이프라인 구축.
 * **4.2. Training-Serving Skew 방어:** 훈련 데이터 생성 시 서빙 환경과 동일한 Sample Rate 변환 전처리 모듈 강제.
-* **4.3. Catastrophic Forgetting 방어 및 실험 추적:** * Demucs 커스텀 파인튜닝 시, 타 악기(Vocal, Drums) 분리 능력 보존을 위해 Loss 함수에 규제항(Regularization Term) 추가.
+* **4.3. 4-Stem 마스킹 학습 및 실험 추적 (Catastrophic Forgetting 방어):** * 프로덕션 아키텍처와 동일한 4-Stem(`htdemucs`) 모델을 베이스 특화로 파인튜닝하기 위해, 미비된 트랙을 Zero-padding하고 Loss 계산에서 제외(Freezing)하는 부분 최적화(Partial Loss Optimization) 전략 도입.
   * MLflow를 연동하여 하이퍼파라미터 추적 및 최적 가중치 자동 릴리즈 체계 구축.

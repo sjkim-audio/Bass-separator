@@ -20,10 +20,12 @@ def run_transcription_pipeline(bass_path: str, bassless_path: str) -> Tuple[str,
     y_bassless, _ = librosa.load(bassless_path, sr=sr, mono=True)
     
     # 2. 피치 및 신뢰도 추적 (CREPE)
+    # 🔴 [수정] 튜닝 결과에 따라 onset_mask 반환값을 추가로 받음
     f0_array, confidence_array, onset_mask = get_f0_crepe_robust(y_bass, sr=sr, hop_length=hop_length)
-    
+
     # 3. 이벤트 파싱 (기계적 결함 1차 필터링)
     parser = PitchParser(sr=sr, hop_length=hop_length)
+    # 🔴 [수정] onset_mask를 파서에 주입하여 연타 분할 기능 활성화
     raw_events = parser.parse_f0_to_events(f0_array, confidence_array, onset_mask)
     
     # 4. 최적 운지법 계산 (Viterbi HMM)
