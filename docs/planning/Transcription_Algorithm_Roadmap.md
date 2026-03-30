@@ -77,3 +77,24 @@
    * `FastAPI` 인터페이스 구성 및 무거운 오디오 처리(Demucs, CREPE)를 `Celery/Redis` 기반 백그라운드 워커로 위임.
 2. **I/O 병목 최적화:**
    * 스템 분리 후 발생하는 중간 산출물(wav)의 디스크 쓰기 작업을 최소화하고, `Numpy` 텐서를 RAM 메모리 상에서 파이프라인으로 직접 체이닝하여 지연 시간(Latency) 단축.
+  
+---
+
+## 📊 Data Strategy & Evaluation Framework (신설)
+
+귀와 눈에 의존하는 휴리스틱 튜닝을 벗어나, 학계 표준(MIR)에 입각한 정량적 평가 및 지도 학습(Supervised Learning) 파이프라인을 구축하기 위한 데이터 전략이다.
+
+### 1. Core Datasets
+수백 시간의 수작업 사보 및 녹음 노동을 제거하기 위해 다음의 검증된 오픈소스 데이터셋을 파이프라인에 통합한다.
+
+* **Slakh2100-redux (대규모 벤치마크용):**
+    * **특징:** 2,100곡의 멀티트랙 오디오와 100% 수학적으로 일치하는 MIDI 파일. 중복이 제거된 Redux 버전 사용.
+    * **활용:** Phase 6(피치 추적) 및 Phase 7(양자화)의 F1-Score를 기계적으로 자동 산출하는 테스트 베드로 활용.
+* **IDMT-SMT-Bass (주법 분류 ML 학습용):**
+    * **특징:** Fraunhofer IDMT 연구소 구축. 4,300개의 단일 노트 오디오 및 5가지 타현 주법(Slap, Pop, Finger, Pick, Muted), 5가지 표현 주법(Slide, Vibrato 등) 라벨링 제공.
+    * **활용:** Phase 8의 Articulation 다중 클래스 분류 모델(1D CNN/Random Forest)을 위한 핵심 학습(Training) 데이터로 활용. '데이터 기아' 문제 원천 해결.
+
+### 2. 하이브리드 검증 아키텍처 (3-Track Validation)
+1.  **Public Data 자동 검증:** Slakh2100을 통해 파이프라인의 베이스라인 성능(Precision, Recall, F1)을 자동 측정.
+2.  **Public Data 모델 학습:** IDMT-SMT-Bass를 통해 주법 분류기 학습.
+3.  **Custom Data 도메인 적응 (Domain Adaptation):** 직접 녹음한 소량의 커스텀 데이터(5~10곡)를 최종 엣지 케이스 및 손버릇 테스트용으로 제한적 활용.
