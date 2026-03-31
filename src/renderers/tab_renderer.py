@@ -19,19 +19,32 @@ class TabRenderer:
         else:
             output_lines.append(f"🎸 Quantized Bass Tab (BPM: {round(bpm)})\n")
 
-        # [Fix] Fallback 모드 시 물리적 시간을 가상의 그리드 인덱스로 변환 (100ms 단위)
+        # 양자화된 시간 및 지속 길이를 격자 인덱스로 투영
         virtual_grids = []
+        durations_in_grids = []
+        
         for e in events:
             if is_fallback:
-                grid = int(e.time * 10) # 1초 = 10칸
+                grid = int(e.time * 10)
+                dur_grid = max(1, int(e.duration * 10))
             else:
                 grid = e.grid_index if e.grid_index is not None else int(e.time * 10)
+                grid_interval = (60.0 / bpm) / 4 if bpm > 0 else 0.1
+                q_dur = e.quantized_duration if e.quantized_duration else e.duration
+                dur_grid = max(1, int(round(q_dur / grid_interval)))
+                
             virtual_grids.append(grid)
+            durations_in_grids.append(dur_grid)
             
-        max_grid = max(virtual_grids) if virtual_grids else 0
+        # 렌더링할 총 마디(Measure) 수 계산
+        max_grid = 0
+        for g, d in zip(virtual_grids, durations_in_grids):
+            max_grid = max(max_grid, g + d)
+            
         total_measures = math.ceil((max_grid + 1) / 16)
         total_measures = max(1, total_measures)
 
+        # 3글자 단위 빈 격자판 초기화
         tab_buffer = {
             s_idx: [["---" for _ in range(16)] for _ in range(total_measures)] 
             for s_idx in TabRenderer.STRING_ORDER
@@ -41,39 +54,38 @@ class TabRenderer:
             if event.string_idx is None or event.fret is None:
                 continue
             
-            grid_pos = virtual_grids[idx]
-            m_idx = grid_pos // 16
-            step_idx = grid_pos % 16
+            start_grid = virtual_grids[idx]
+            dur_grid = durations_in_grids[idx]
             s_idx = event.string_idx
 
-            if s_idx not in tab_buffer:
-                continue 
-
-            new_fret_str = str(event.fret)
-            existing_cell = tab_buffer[s_idx][m_idx][step_idx]
-
-            # [교정] 충돌 감지 및 병합 로직
-            if existing_cell == "---":
-                if len(new_fret_str) == 1:
-                    cell = f"-{new_fret_str}-"
-                elif len(new_fret_str) == 2:
-                    cell = f"{new_fret_str}-"
+            m_idx = start_grid // 16
+            step_idx = start_grid % 16
+            
+            # 1. Onset 타격음 렌더링 (숫자 배치)
+            if m_idx < total_measures:
+                fret_str = str(event.fret)
+                if len(fret_str) == 1:
+                    cell = f"-{fret_str}-"
+                elif len(fret_str) == 2:
+                    cell = f"{fret_str}-"
                 else:
-                    cell = new_fret_str[:3]
-            else:
-                # 기존 데이터가 존재할 경우 (Collision)
-                # 하이픈을 제거하고 새로운 노트를 이어붙임 (예: "-5-" + "7" -> "57-")
-                prev_fret = existing_cell.replace("-", "")
-                merged = f"{prev_fret}{new_fret_str}"
+                    cell = fret_str[:3]
+                    
+                # Monophonic Enforcer 덕분에 무조건 덮어쓰기 가능 (충돌 해결 완료)
+                tab_buffer[s_idx][m_idx][step_idx] = cell.ljust(3, "-")
+
+            # 2. Duration 서스테인(~) 기호 렌더링
+            for d in range(1, dur_grid):
+                sus_grid = start_grid + d
+                sus_m_idx = sus_grid // 16
+                sus_step_idx = sus_grid % 16
                 
-                # ASCII 셀 크기(3자) 강제 맞춤
-                if len(merged) <= 3:
-                    cell = merged.ljust(3, "-")
-                else:
-                    cell = merged[:3] # 공간 부족 시 강제 절삭
+                if sus_m_idx < total_measures:
+                    # 해당 격자가 비어있을 때만 서스테인 기호 표기 (다음 노트 침범 방지)
+                    if tab_buffer[s_idx][sus_m_idx][sus_step_idx] == "---":
+                        tab_buffer[s_idx][sus_m_idx][sus_step_idx] = "~~~"
 
-            tab_buffer[s_idx][m_idx][step_idx] = cell
-
+        # 최종 텍스트 병합 출력
         measures_per_line = 2 
         for line_start in range(0, total_measures, measures_per_line):
             line_end = min(line_start + measures_per_line, total_measures)
@@ -84,6 +96,6 @@ class TabRenderer:
                     measure_str = "".join(tab_buffer[s_idx][m_idx])
                     row_str += f"{measure_str}|"
                 output_lines.append(row_str)
-            output_lines.append("") # 개행
+            output_lines.append("") # 줄바꿈
 
         return "\n".join(output_lines)
