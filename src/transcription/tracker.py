@@ -40,9 +40,10 @@ def clean_octave_errors_smart(f0_array, onset_mask, window_size=7, onset_toleran
     f0_clean[mask] = librosa.midi_to_hz(midi_notes[mask])
     return f0_clean
 
-# 🔴 [수정] 음수 인덱스 버그를 유발하는 30 대신 모델 최소 안전선인 33으로 하향 조정
-def get_f0_crepe_robust(audio, sr, hop_length=160, fmin=33, fmax=500, chunk_duration=30, model_capacity='tiny', batch_size=512):
-    sos = scipy.signal.butter(4, 25, 'hp', fs=sr, output='sos')
+# 🔴 [롤백] fmin을 다시 40으로 복구
+def get_f0_crepe_robust(audio, sr, hop_length=160, fmin=40, fmax=500, chunk_duration=30, model_capacity='tiny', batch_size=512):
+    # 🔴 [롤백] 초저역대 럼블 노이즈를 막기 위해 HPF를 35Hz로 복구
+    sos = scipy.signal.butter(4, 35, 'hp', fs=sr, output='sos')
     audio = scipy.signal.sosfilt(sos, audio)
     audio = audio.astype(np.float32)
 
