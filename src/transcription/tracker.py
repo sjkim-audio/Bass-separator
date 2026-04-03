@@ -6,11 +6,6 @@ import torch
 import torchcrepe
 
 def clean_octave_errors_smart(f0_array, onset_mask, window_size=7, onset_tolerance=4):
-    """
-    [Error Correction] Onset 기반 스마트 옥타브 오류 보정
-    어택 부근의 도약은 보존하고, 지속음 구간의 도약만 강제 보정.
-    [Phase 6 Tuning] onset_tolerance를 2에서 4(40ms)로 상향하여 타격 지연 보정.
-    """
     f0_clean = f0_array.copy()
     mask = (f0_clean > 0) & (~np.isnan(f0_clean))
     if np.sum(mask) == 0:
@@ -46,16 +41,12 @@ def clean_octave_errors_smart(f0_array, onset_mask, window_size=7, onset_toleran
     return f0_clean
 
 def get_f0_crepe_robust(audio, sr, hop_length=160, fmin=40, fmax=500, chunk_duration=30, model_capacity='tiny', batch_size=512):
-    """
-    [Main Pipeline] 프로덕션 환경에 최적화된 베이스 전용 피치 트래커 (CREPE)
-    [Phase 6 Tuning] smooth_kernel 파라미터 폐기 (어택 스미어링 방지).
-    """
     sos = scipy.signal.butter(4, 35, 'hp', fs=sr, output='sos')
     audio = scipy.signal.sosfilt(sos, audio)
     audio = audio.astype(np.float32)
 
     if np.max(np.abs(audio)) < 1e-6:
-        return np.zeros(len(audio) // hop_length), np.zeros(len(audio) // hop_length) 
+        return np.zeros(len(audio) // hop_length), np.zeros(len(audio) // hop_length), np.zeros(len(audio) // hop_length, dtype=bool)
     audio = librosa.util.normalize(audio)
 
     if torch.cuda.is_available():
@@ -72,6 +63,7 @@ def get_f0_crepe_robust(audio, sr, hop_length=160, fmin=40, fmax=500, chunk_dura
     
     f0_list = []
     confidence_list = []
+    
     for start_idx in range(0, total_samples, chunk_samples):
         end_idx = min(start_idx + chunk_samples, total_samples)
         audio_chunk = audio[start_idx:end_idx]
@@ -104,8 +96,16 @@ def get_f0_crepe_robust(audio, sr, hop_length=160, fmin=40, fmax=500, chunk_dura
                 else:
                     raise e 
         
-        f0_list.append(f0_chunk.squeeze().cpu().numpy())
-        confidence_list.append(conf_chunk.squeeze().cpu().numpy())
+        f0_chunk = f0_chunk.squeeze().cpu().numpy()
+        conf_chunk = conf_chunk.squeeze().cpu().numpy()
+        
+        # 청크 경계의 중복 프레임 누적 방지 (마지막 청크가 아닐 경우 마지막 프레임 절삭)
+        if end_idx < total_samples:
+            f0_chunk = f0_chunk[:-1]
+            conf_chunk = conf_chunk[:-1]
+            
+        f0_list.append(f0_chunk)
+        confidence_list.append(conf_chunk)
         
         del audio_tensor, f0_chunk, conf_chunk
         if device == 'cuda':
@@ -118,8 +118,6 @@ def get_f0_crepe_robust(audio, sr, hop_length=160, fmin=40, fmax=500, chunk_dura
     f0 = f0[:expected_frames]
     confidence = confidence[:expected_frames]
 
-    # 🔴 [Phase 6 Tuning: Test 9 Golden State 마스크 생성 로직 이식] 🔴
-    # fmax=400, delta=0.06 설정으로 슬랩 옥타브 에러 방어 및 안정성 확보
     onset_env = librosa.onset.onset_strength(y=audio, sr=sr, hop_length=hop_length, fmax=400, aggregate=np.median)
     onset_frames = librosa.onset.onset_detect(onset_envelope=onset_env, sr=sr, hop_length=hop_length, wait=3, pre_avg=3, post_avg=3, delta=0.06)
     
@@ -127,10 +125,8 @@ def get_f0_crepe_robust(audio, sr, hop_length=160, fmin=40, fmax=500, chunk_dura
     valid_onsets = onset_frames[onset_frames < len(f0)]
     onset_mask[valid_onsets] = True
 
-    # 옥타브 보정에 안정화된 onset_mask 주입 (window_size=7, onset_tolerance=4)
     f0 = clean_octave_errors_smart(f0, onset_mask, window_size=7, onset_tolerance=4)
 
-    # 🔴 [Phase 6 Tuning: 노이즈 게이트 임계값 교체] 🔴
     mask_low = (f0 < 80) & (confidence < 0.2)
     mask_mid = (f0 >= 80) & (f0 <= 200) & (confidence < 0.4)
     mask_high = (f0 > 200) & (confidence < 0.6)
@@ -138,5 +134,4 @@ def get_f0_crepe_robust(audio, sr, hop_length=160, fmin=40, fmax=500, chunk_dura
     f0[mask_low | mask_mid | mask_high] = np.nan
     f0[f0 > fmax] = np.nan
 
-    # [주의] 이 모듈에서는 f0, confidence와 함께 onset_mask도 반환해야 Parser에서 연타 분할을 할 수 있음
     return f0, confidence, onset_mask
