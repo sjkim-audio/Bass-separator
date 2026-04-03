@@ -19,7 +19,6 @@ class PitchParser:
         if not candidates: return None
         return min(candidates, key=lambda x: x[1])
 
-    # 🔴 [Phase 6 Tuning] onset_mask 추가, Golden State 파라미터 이식 🔴
     def parse_f0_to_events(self, f0_array: np.ndarray, confidence_array: np.ndarray, onset_mask: np.ndarray) -> List[NoteEvent]:
         events = []
         frame_time = self.hop_length / self.sr
@@ -27,7 +26,6 @@ class PitchParser:
         note_start_frame = 0
         blank_counter = 0
 
-        # [Test 9 Golden State] 파라미터 하드코딩 또는 기본값 설정
         MIN_DURATION_FRAMES = 7
         TOLERANCE_FRAMES = 6.5
         LATENCY_COMP_SEC = 0.005
@@ -49,7 +47,6 @@ class PitchParser:
                     current_note = midi_note
                     note_start_frame = i
                     
-                # 🔴 [기능 추가] 피치 변경 또는 Onset 감지 시 즉시 분할
                 elif (current_note != midi_note) or (current_onset is True):
                     duration_frames = i - note_start_frame
                     if duration_frames >= MIN_DURATION_FRAMES:
@@ -60,7 +57,6 @@ class PitchParser:
                     current_note = midi_note
                     note_start_frame = i
                     
-                # 🔴 [기능 추가] 피치가 같더라도 신뢰도가 하락하면 강제 분할
                 elif (conf_val < RETRIGGER_CONF_THRESH):
                     duration_frames = i - note_start_frame
                     if duration_frames >= MIN_DURATION_FRAMES:
@@ -68,7 +64,6 @@ class PitchParser:
                         duration_sec = float(duration_frames * frame_time)
                         comp_start_time = max(0, (note_start_frame * frame_time) - LATENCY_COMP_SEC)
                         events.append(self._create_event(current_note, comp_start_time, duration_sec, conf_avg))
-                    # 신뢰도 하락 구간은 노이즈이므로 대기 상태(None)로 진입
                     current_note = None
                     
             else:
@@ -92,7 +87,6 @@ class PitchParser:
                 comp_start_time = max(0, (note_start_frame * frame_time) - LATENCY_COMP_SEC)
                 events.append(self._create_event(current_note, comp_start_time, duration_sec, conf))
 
-        # 🔴 [기능 추가] Test 11: 플럭 주법 노이즈(Double-Triggering) 필터링
         events = self._post_process_garbage_pitch(events)
 
         return events
@@ -104,9 +98,7 @@ class PitchParser:
             return NoteEvent(time=time_sec, duration=duration_sec, midi_note=midi_note, string_idx=pos[0], fret=pos[1], confidence=confidence)
         return NoteEvent(time=time_sec, duration=duration_sec, midi_note=midi_note, confidence=confidence)
 
-    # -----------------------------------------------------------------
-    # 🔴 [신설] MIDI Post-Processing Module (Test 11 로직) 🔴
-    # -----------------------------------------------------------------
+    # 🔴 [수정] 원본 리스트의 불변성을 유지하는 순수 함수 구조로 리팩토링
     def _post_process_garbage_pitch(self, events: List[NoteEvent]) -> List[NoteEvent]:
         """
         슬랩 팝(Pop) 타격 시 발생하는 짧은 옥타브 쓰레기 노트를 식별하여 
@@ -115,34 +107,30 @@ class PitchParser:
         if not events: 
             return []
             
+        working_events = events.copy()
         cleaned_events = []
         i = 0
         
-        while i < len(events) - 1:
-            curr_note = events[i]
-            next_note = events[i+1]
+        while i < len(working_events) - 1:
+            curr_note = working_events[i]
+            next_note = working_events[i+1]
             
             gap = next_note.time - (curr_note.time + curr_note.duration)
 
-            # Rule: 60ms 이하의 짧은 노트, 간격 40ms 이하, 5반음 이상의 급격한 피치 변화
             if curr_note.duration <= 0.06 and gap <= 0.04 and abs(curr_note.midi_note - next_note.midi_note) >= 5:
-                # "띠" 노트를 건너뛰고 "딩" 노트의 시작점을 당겨줌
-                adjusted_next_note = NoteEvent(
+                # `update` 메서드(불변성 보장)를 통해 새로운 객체 생성
+                adjusted_next_note = next_note.update(
                     time=curr_note.time,  
-                    duration=next_note.duration + (next_note.time - curr_note.time),
-                    midi_note=next_note.midi_note,
-                    string_idx=next_note.string_idx, # 기존 핑거링 정보 보존
-                    fret=next_note.fret,
-                    confidence=next_note.confidence
+                    duration=next_note.duration + (next_note.time - curr_note.time)
                 )
-                events[i+1] = adjusted_next_note
+                working_events[i+1] = adjusted_next_note
                 i += 1
                 continue
 
             cleaned_events.append(curr_note)
             i += 1
             
-        if i == len(events) - 1:
-            cleaned_events.append(events[i])
+        if i == len(working_events) - 1:
+            cleaned_events.append(working_events[-1])
             
         return cleaned_events

@@ -40,8 +40,10 @@ def clean_octave_errors_smart(f0_array, onset_mask, window_size=7, onset_toleran
     f0_clean[mask] = librosa.midi_to_hz(midi_notes[mask])
     return f0_clean
 
-def get_f0_crepe_robust(audio, sr, hop_length=160, fmin=40, fmax=500, chunk_duration=30, model_capacity='tiny', batch_size=512):
-    sos = scipy.signal.butter(4, 35, 'hp', fs=sr, output='sos')
+# 🔴 [수정] 5현 베이스 및 Augmentation 다운튜닝 커버를 위해 fmin=30으로 하향
+def get_f0_crepe_robust(audio, sr, hop_length=160, fmin=30, fmax=500, chunk_duration=30, model_capacity='tiny', batch_size=512):
+    # 🔴 [수정] 저음역대 손실 방지를 위해 HPF Cutoff를 35Hz -> 25Hz로 하향
+    sos = scipy.signal.butter(4, 25, 'hp', fs=sr, output='sos')
     audio = scipy.signal.sosfilt(sos, audio)
     audio = audio.astype(np.float32)
 
@@ -99,7 +101,6 @@ def get_f0_crepe_robust(audio, sr, hop_length=160, fmin=40, fmax=500, chunk_dura
         f0_chunk = f0_chunk.squeeze().cpu().numpy()
         conf_chunk = conf_chunk.squeeze().cpu().numpy()
         
-        # 청크 경계의 중복 프레임 누적 방지 (마지막 청크가 아닐 경우 마지막 프레임 절삭)
         if end_idx < total_samples:
             f0_chunk = f0_chunk[:-1]
             conf_chunk = conf_chunk[:-1]

@@ -143,7 +143,6 @@ async def run_transcription_evaluation(ref_midi_path: str, audio_path: str, is_i
     
     try:
         if not is_isolated:
-            # 1. 믹스 음원일 경우 Demucs를 가동하여 스템 분리
             from src.core.demucs_runner import separate_and_generate_stems
             print("⏳ 믹스 음원이 감지되었습니다. Demucs 음원 분리를 먼저 수행합니다...")
             temp_out_dir = "outputs/eval_temp"
@@ -151,21 +150,21 @@ async def run_transcription_evaluation(ref_midi_path: str, audio_path: str, is_i
         else:
             print("⚡ 단일 베이스 트랙(Isolated) 모드입니다. Demucs를 생략하고 즉시 채보를 시작합니다.")
             
-        # 2. Phase 7 파이프라인 실행
-        # (단일 베이스일 경우 bassless_path에 None이 유지되며, Quantizer 내부의 Fallback이 정상 작동함)
         _, _, quantized_events = run_transcription_pipeline(bass_path, bassless_path)
         
-        # 3. 평가 진행 (현재는 Raw 이벤트 기준)
-        metrics = TranscriptionEvaluator.evaluate(ref_midi_path, quantized_events, test_quantized=False)
+        # 🔴 [수정] Raw 단계의 F1-Score와 Quantized(오버랩 해결 후) 단계의 F1-Score를 동시 검증
+        metrics_raw = TranscriptionEvaluator.evaluate(ref_midi_path, quantized_events, test_quantized=False)
+        metrics_quantized = TranscriptionEvaluator.evaluate(ref_midi_path, quantized_events, test_quantized=True)
         
         print("-" * 40)
         print("🔹 Transcription Summary (mir_eval)")
         print("-" * 40)
-        print(f"✅ Onset-Pitch Precision : {metrics['Onset_Pitch_Precision'] * 100:.2f}%")
-        print(f"✅ Onset-Pitch Recall    : {metrics['Onset_Pitch_Recall'] * 100:.2f}%")
-        print(f"✅ Onset-Pitch F1-Score  : {metrics['Onset_Pitch_F1'] * 100:.2f}%")
+        print(f"✅ [Raw] Onset-Pitch F1-Score        : {metrics_raw['Onset_Pitch_F1'] * 100:.2f}%")
+        print(f"✅ [Quantized] Onset-Pitch F1-Score  : {metrics_quantized['Onset_Pitch_F1'] * 100:.2f}%")
         print("-" * 40)
-        return metrics
+        
+        # Quantized 기준 지표를 최종 반환 (파이프라인 최적화 목표)
+        return metrics_quantized
         
     except Exception as e:
         print(f"❌ Error during transcription evaluation: {e}")
