@@ -148,15 +148,32 @@ class TranscriptionEvaluator:
             "Onset_Pitch_F1": round(scores['F-measure'], 4)
         }
 
-def run_transcription_evaluation(ref_midi_path: str, audio_path: str) -> dict:
-    """[래퍼] 파이프라인을 구동하여 채보를 수행하고 정확도를 산출한다."""
+async def run_transcription_evaluation(ref_midi_path: str, audio_path: str, is_isolated: bool = False) -> dict:
+    """
+    [래퍼] 파이프라인을 구동하여 채보를 수행하고 정확도를 산출한다.
+    is_isolated=True일 경우 무거운 Demucs 분리 과정을 생략하고 즉시 평가를 진행한다.
+    """
     print(f"🎵 [Transcription] Processing Audio: {os.path.basename(audio_path)}")
-    from src.core.pipeline import run_transcription_pipeline # 순환 참조 방지를 위해 지연 로드
+    from src.core.pipeline import run_transcription_pipeline
+    
+    bass_path = audio_path
+    bassless_path = audio_path # Fallback 대응용 기본값
     
     try:
-        # Phase 7 파이프라인 실행 (단일 오디오로 가정. 스템이 분리되어 있다면 경로 수정 필요)
-        _, _, quantized_events = run_transcription_pipeline(audio_path, audio_path)
+        if not is_isolated:
+            # 1. 믹스 음원일 경우 Demucs를 가동하여 스템 분리
+            from src.core.demucs_runner import separate_and_generate_stems
+            print("⏳ 믹스 음원이 감지되었습니다. Demucs 음원 분리를 먼저 수행합니다...")
+            temp_out_dir = "outputs/eval_temp"
+            bass_path, bassless_path = await separate_and_generate_stems(audio_path, output_dir=temp_out_dir)
+        else:
+            print("⚡ 단일 베이스 트랙(Isolated) 모드입니다. Demucs를 생략하고 즉시 채보를 시작합니다.")
+            
+        # 2. Phase 7 양자화 파이프라인 실행
+        # (단일 베이스일 경우 bassless_path에 bass_path가 들어가며, Quantizer 내부의 Fallback이 자연스럽게 작동함)
+        _, _, quantized_events = run_transcription_pipeline(bass_path, bassless_path)
         
+        # 3. 평가 진행 (Phase 7 양자화 전후를 모두 평가하도록 확장 가능하나, 현재는 Raw 이벤트 기준)
         metrics = TranscriptionEvaluator.evaluate(ref_midi_path, quantized_events, test_quantized=False)
         
         print("-" * 40)
@@ -167,7 +184,9 @@ def run_transcription_evaluation(ref_midi_path: str, audio_path: str) -> dict:
         print(f"✅ Onset-Pitch F1-Score  : {metrics['Onset_Pitch_F1'] * 100:.2f}%")
         print("-" * 40)
         return metrics
+        
     except Exception as e:
         print(f"❌ Error during transcription evaluation: {e}")
+        import traceback
         traceback.print_exc()
         return {}
