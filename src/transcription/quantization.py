@@ -108,3 +108,14 @@ class RhythmicQuantizer:
                 quantized[i] = curr.update(quantized_duration=resolved_duration)
 
         return quantized
+    
+    def _apply_musical_smoothing(self, events: List[NoteEvent]) -> List[NoteEvent]:
+        """
+        악보 가독성을 저해하는 32분 음표 이하의 짧은 파편 노트를 제거하거나 
+        인접한 긴 노트에 병합함.
+        """
+        if not events: return []
+    
+        # 예: 16분 음표 미만의 아주 짧은 노트를 가비지로 판단하여 제거 (BPM 기반 계산)
+        min_threshold = (60.0 / self.bpm) / 8 if self.bpm > 0 else 0.05
+        return [e for e in events if e.quantized_duration >= min_threshold]
