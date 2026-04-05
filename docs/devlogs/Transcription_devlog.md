@@ -7,7 +7,8 @@
 > Phase 4 Completed (Rhythmic Quantization & Pipeline Modularization)
 > Phase 5 Completed (MIDI Export & Streamlit Web UI Integration)
 > Phase 6 Completed (DSP Fine-Tuning & Symbolic Post-Processing)
-> Phase 7 Planned (Rhythmic Quantizer & Viterbi Algorithm Refinement)
+> Phase 7 Completed (Quantizer Fallback Tuning & E2E Stability)
+> Phase 8 Planned (Baseline F1-Score Quantification & Standard Notation Export)
 
 ## 1. Overview
 이 프로젝트는 믹스된 오디오에서 베이스를 분리하고 **실제 연주 가능한 타브 악보(ASCII Tab)**를 생성하는 End-to-End 파이프라인입니다. 
@@ -15,6 +16,8 @@
 초기(Phase 1)에는 `librosa.pyin`을 사용했으나, 분리된 베이스 음원(Stem)의 낮은 음질과 노이즈로 인해 정확도가 떨어지는 한계가 있었습니다. 현재(Phase 2)는 **SOTA 딥러닝 모델인 CREPE**를 도입하고, 베이스에 특화된 전/후처리(Pre/Post-processing) 로직을 통해 피치 인식률을 비약적으로 향상시켰습니다. 나아가 물리적 연주 가능성(Playability)을 고려한 최적 운지법 추천 모델(Phase 3)을 거쳐, 오디오의 물리적 시간을 음악적 박자(16분음표 격자)로 정렬하는 **리듬 양자화(Phase 4)**를 달성했습니다. 전체 시스템은 유지보수와 확장을 위해 불변 데이터 파이프라인(Immutable Data Pipeline)으로 재설계되었습니다. 최근(Phase 5)에는 추출된 원시 노트 이벤트(NoteEvent) 배열을 활용하여 물리적 타이밍과 운지법이 보존된 **표준 `.mid` (MIDI) 파일 렌더링 로직**을 신설하고, REST API와 연동되는 **Streamlit 기반의 시각화 프론트엔드 웹 데모**를 구축하여 사용자 접근성과 데이터 출력 다각화를 완수했습니다.
 
 최근(Phase 6)에는 피치 트래커(CREPE)와 파서(Parser)의 하이퍼파라미터를 튜닝하여 저음역대 연타 인식률과 슬랩(Slap) 주법의 옥타브 에러를 개선했습니다. 오디오 신호(Signal) 영역에서의 파라미터 튜닝이 수확 체감(Law of Diminishing Returns)에 도달했음을 인지하고, 기호(Symbolic/MIDI) 영역에서의 휴리스틱 후처리 필터를 도입하여 플럭(Pluck) 노이즈를 제압하는 최적의 타협점(Golden State) 파이프라인을 확정했습니다. ([자세한 파라미터 튜닝 실험 일지는 pitch_track_tunning_devlog.md 참조](./pitch_track_tunning_devlog.md))
+
+최근(Phase 6.5 ~ 7)에는 파이프라인의 숨겨진 도메인 결함과 데이터 동기화(Synchronization) 문제를 심층 디버깅하여 해결했습니다. 5현 베이스 대역폭을 커버하기 위해 무리하게 확장했던 주파수 하한선(HPF, fmin)이 CREPE 모델의 훈련 임계치(32.7Hz)를 벗어나 음수 슬라이싱 버그를 유발하고, 초저역대 럼블(Rumble) 노이즈가 온셋 탐지기를 마스킹하여 대규모 노트 증발(Massive Note Omission)을 일으키는 아키텍처 결함을 발견했습니다. 이를 안정적 초기값(Golden State)으로 롤백하여 피치 인식 무결성을 복원했습니다. 또한, OOM 방지용 오디오 청크(Chunk) 분할 과정에서 발생하는 경계 프레임 중복 적재 버그(Time Desync)를 교정하고, 단일 베이스 트랙 입력 시 리듬 양자화기의 BPM 추출이 고주파 노이즈에 의해 오작동하는 엣지 케이스를 방어하여 파이프라인의 E2E 안정성을 달성했습니다.
 
 ---
 
@@ -36,8 +39,8 @@
 - **Robust Configuration:**
   - **Decoder:** `Argmax` (Viterbi 방식보다 노이즈 환경에서 생존율 높음).
   - **Resolution:** 10ms (Hop Length: 160 @ 16kHz).
-  - **Scope:** `fmin=40Hz` (Low E 근사치) ~ `fmax=500Hz`.
-  - **VRAM/Speed Optimization:** `tiny` 모델을 기본값으로 채택하여 고속 추론을 확보하고, CUDA OOM 방지를 위해 오디오를 30초 단위 청크(Chunk)로 분할 처리. Apple Silicon(MPS) 하드웨어 가속 지원 추가.
+  - **Scope:** `fmin=40Hz` ~ `fmax=500Hz`. (5현 베이스 확장을 위해 33Hz를 시도했으나, 딥러닝 모델의 주파수-Bin 변환 공식 한계치 도달 시 발생하는 파이썬 음수 인덱싱(`[:-4]`) 슬라이스 버그로 인해 확률 텐서가 소실되는 부작용이 확인되어 40Hz로 회귀)
+  - **VRAM/Speed Optimization:** `tiny` 모델 채택 및 30초 단위 Chunking 처리. 청크 경계 병합 시 이전 청크의 마지막 프레임을 강제 절삭(`[:-1]`)하여 프레임 중복 적재로 인한 타임스탬프 밀림(Time Desync) 현상을 차단함.
 
 ### Step 4: Error Correction (Post-processing)
 - **Pipeline Reordering:** 이동 중앙값(Rolling Median) 연산 오류를 방지하기 위해 결측치(NaN) 마스킹을 수학적 보정(Median, Octave) 이후 가장 마지막 단계로 재배치.
@@ -48,7 +51,7 @@
 - **Viterbi HMM Decoder:** 기존의 탐욕(Greedy) 기반 1차원 매핑을 은닉 마르코프 모델(HMM)로 대체. 동적 계획법(DP)을 통해 전체 연주의 '생체역학적 이동 비용(Cost)'을 최소화하는 최적 경로를 추론.
 
 ### Step 6: Rhythmic Quantization & Pipeline Architecture (Phase 4)
-- **BPM Tracking & PLP:** 베이스 라인의 빈번한 당김음(Syncopation)으로 인한 정박(Downbeat) 오판을 방지하기 위해, 400Hz 이하 대역의 Onset Envelope를 추출하고 PLP(Predominant Local Pulse)를 적용합니다. 극단적 엇박으로 모델이 BPM을 탐지하지 못할 경우, 데이터 무결성 오염을 막기 위해 억지 양자화(120 BPM 강제 할당 등)를 생략하고 원본 물리적 시간(Unquantized Time)을 그대로 보존(Bypass)합니다.
+- **BPM Tracking & PLP:** 베이스 라인의 잦은 당김음 오판을 방지하기 위해 MR(Bassless) 트랙을 최우선으로 분석함. 믹스 음원이 아닌 단일 베이스 트랙(Isolated) 처리 시, 고주파 대역 온셋 추적기(`fmax=8000`)가 슬랩 노이즈를 비트로 오인하는 결함을 방어하기 위해 MR 변수에 `None`을 주입, 저주파 대역(`fmax=400`) 전용 추적기(Fallback)로 강제 우회시키는 안전장치 적용.
 - **Grid Snapping (Euclidean Distance):** 추정된 BPM을 기반으로 16분음표 길이의 시간 격자(Time Grid, $\Delta t$)를 산출. 각 노트의 물리적 발생 시간($t_i$)을 유클리드 거리가 최소화되는 수식($k_i^* = \text{round}(t_i / \Delta t)$)을 통해 가장 가까운 16분음표 격자에 강제 할당(Quantize). 동일 격자 내 다중 노트 소실 방지를 위해 리스트(List) 기반 누적 아키텍처 적용.
 - **Immutable Pipeline (Layered Architecture):** 가변 딕셔너리로 인한 상태 오염과 God Object 안티패턴을 해결하기 위해, `NoteEvent` 불변 데이터 클래스(Dataclass, `frozen=True`)를 도입. 모듈 네임스페이스 충돌을 방지하기 위해 표현 계층(Presentation Layer)을 `renderers/` 패키지로 완전히 분리하여 `Parser` $\rightarrow$ `Fingering` $\rightarrow$ `Quantization` $\rightarrow$ `Renderer` 로 이어지는 단방향 함수형 파이프라인 완성 (`v1.0.0-alpha`).
 
@@ -117,6 +120,11 @@ E |---------------------------------------------3--|---------3-----4-----3------
 | **Same-Pitch Retriggering (동일 피치 연타 병합 오류)** | 피치(Hz)가 변경될 때는 파서가 새로운 노트로 정상 분할하지만, **동일한 피치가 연속으로 타현될 때**는 전체 진폭(Amplitude) 변화가 미미하여 탐지기가 타격점을 놓치고 하나의 긴 음(Legato)으로 뭉뚱그려 인식함. | 피치 변화에만 의존하던 기존 파서의 노트 분할 조건식에, **동일음 타현 시 발생하는 미세한 마찰 노이즈로 인해 '모델 예측 신뢰도(Confidence)'가 순간 하락(<0.5)하는 현상**을 새로운 교차 검증 지표(Feature)로 추가하여 강제 분할(Retriggering) 구현. |
 | **슬랩 옥타브 보정기 오작동 및 초고음 발생** | 연타 감지를 위해 Onset 탐지기를 고주파 대역(fmin=500)으로 예민하게 튜닝하자, 일반적인 핑거링 찰과음을 슬랩 타격으로 오진하여 배음 에러를 무사통과시킴. | 단일 마스크 구조의 한계를 인정하고, 옥타브 보정용 Onset 마스크를 둔감한 **저음역대 기반(fmax=400Hz, delta=0.06)으로 롤백**하여 안정성(Golden State) 우선 확보. |
 | **플럭 주법의 2단 튀김 ("띠-딩" 현상)** | 플럭(Pluck) 타격 직후 30~40ms의 배음 붕괴 구간에서 CREPE 모델이 터무니없는 고음(Garbage Pitch)을 뱉어내어 2개의 독립된 노트로 파싱됨. | 신호 결측(Muting) 방식이 정상 어택까지 훼손하는 부작용을 확인한 후, 파싱이 완료된 기호 영역에서 **짧은 지속 시간(<60ms)과 극단적 피치 도약(>5반음)을 감지해 강제 삭제/병합하는 MIDI Post-Processor** 도입. |
+| **Phase 6~7 (Time-Sync & Domain Calibration)** | | |
+| **Time Desync in Pitch Tracking** | CREPE 모델의 VRAM 보호를 위해 오디오를 30초 청크 단위로 나누어 연산할 때, 각 청크 경계선에 위치한 프레임이 중복 적재되며 전체 타임스탬프가 점진적으로 밀리는(Desync) 현상. | 마지막 청크를 제외한 모든 청크 결과물의 마지막 프레임을 기계적으로 절삭(`[:-1]`)하여 병합하도록 슬라이싱 로직 교정. |
+| **Massive Note Omission (DSP Mismatch)** | 5현 베이스(B0=30.8Hz) 지원을 위해 HPF를 25Hz, `fmin`을 33Hz로 하향했으나, 모델 최저 학습 한계점(C1=32.7Hz) 이하의 음수 인덱스 슬라이싱 버그가 확률 텐서를 날려버리고 초저주파 럼블이 온셋을 마스킹함. | HPF 컷오프를 35Hz, `fmin`을 40Hz의 **안정적 초기값(Golden State)**으로 롤백. 가비지 노이즈로 인한 예측 신뢰도 하락과 파서의 어택 병합(노트 증발) 현상 완벽 해결. |
+| **Isolated Track Tempo Fallback Failure** | 믹스가 아닌 단일 베이스 트랙(Isolated) 입력 시, 템포 추출을 위한 `bassless_path` 변수에 베이스 소스가 그대로 주입되면서 고주파 온셋 에너지가 높게 측정되어 베이스 전용 BPM 추적(Fallback)이 차단됨. | 단일 트랙 처리 시 `bassless_path`에 명시적으로 `None`을 주입하도록 파이프라인 컨트롤러를 수정하여, 저역대 전용(`fmax=400`) BPM 추적기가 정상 가동되도록 강제함. |
+| **Mutable State Side Effect in Parser** | 파서의 기호 영역 보정 함수(`_post_process_garbage_pitch`)가 입력받은 이벤트 리스트를 In-place로 수정하여, Call-by-Assignment 특성에 의한 원본 데이터 오염 발생. | 원본 리스트를 얕은 복사(Shallow Copy)하고 `NoteEvent.update()` 메서드를 활용하여 객체를 교체(Immutable Replacement)하는 방식으로 순수 함수(Pure Function) 구조 보장. |
 ---
 
 ## 5. Future Works (Roadmap)
@@ -129,7 +137,9 @@ E |---------------------------------------------3--|---------3-----4-----3------
 - [x] **Clean Architecture Integration:** FastAPI 백엔드와 코어 파이프라인(`src/core/pipeline.py`)을 완벽히 격리하고 비동기 폴링을 위한 JSON DTO 응답 규격 정립.
 - [x] **MIDI Export (Phase 5):** 추출된 이벤트 데이터를 순회하며 물리적 타이밍(Delta Time)과 운지법이 보존된 표준 `.mid` 파일 추출 로직(`MidiRenderer`) 구현 완료.
 - [x] **Streamlit / Web UI Dashboard:** 클라이언트가 `202 Accepted` 응답 후 `task_id`를 기반으로 비동기 폴링하여 최종 타브 악보, 음원 렌더링 및 MIDI를 다운로드할 수 있는 MVP 프론트엔드 구축 완료.
-- [x] **Model Fine-Tuning (Phase 6):** 파라미터 튜닝의 수확 체감 구간 도달을 선언하고, DSP 튜닝을 동결(Freeze)한 뒤 기호 영역(Symbolic) 후처리 필터로 플럭 노이즈 등 치명적 에러 방어 완료.
-- [ ] **Residual Noise Filtering via Downstream (Phase 7):** DSP 튜닝 한계로 인해 잔존하는 극단적 슬라이딩 파편화("띠리링") 노이즈를 `Rhythmic Quantizer`의 16분음표 그리드 스냅과 `Viterbi Fingering`의 생체역학적 비용(Cost) 함수를 통해 기계적으로 소거하는 하류(Downstream) 파이프라인 고도화 진행 예정.
-- [ ] **Articulation Detection & Offset Heuristics (Quality):** 슬라이드(Slide), 해머링 온/풀오프(Hammer-on/Pull-off) 감지 및 CREPE 모델의 Offset(음 종료점) 추적 한계를 보완하여 질척이는 음(Sustain)을 깔끔하게 커팅하는 휴리스틱 로직 개발.
-- [ ] **Model Fine-Tuning (Phase 6):** 실제 베이스 연주-악보 페어(Pair) 데이터셋을 구축하여, 피치 트래커의 인식률 및 Viterbi 운지법 전이 확률(Transition Matrix)을 베이스 기타 도메인에 완벽히 특화되도록 재학습.
+- [x] **Model Fine-Tuning (Phase 6):** 파라미터 튜닝 한계 도달 인지 및 DSP 튜닝 동결. 기호 영역(Symbolic) 후처리 필터로 치명적 예측 에러 방어 완료.
+- [x] **Residual Noise Filtering via Downstream (Phase 7):** 단일 트랙에 대한 양자화기(Rhythmic Quantizer) Fallback 로직 보완 및 CREPE 청크 분할 시 발생하는 Time-Desync 버그 완벽 교정.
+- [ ] **Action 1: Baseline F1-Score Quantification:** 정답 MIDI(Ground Truth)를 갖춘 테스트 벤치마크 데이터셋을 구축하여 `src/evaluation.py` 가동. 양자화 전후(Raw vs Quantized)의 **Onset/Pitch F1-Score 초기 기준값**을 측정하고 정량적 성능 지표로 삼음.
+- [ ] **Action 2: Standard Notation Serialization Engine:** 단순히 텍스트를 출력하는 ASCII 타브를 넘어, **MusicXML 또는 GuitarPro 파일(.gp5)** 포맷을 직접 생성하는 렌더러 구축. 이를 위해 양자화 로직 내부에 '가독성을 위한 초단기음 평탄화 휴리스틱(Musical Smoothing)' 선행 적용.
+- [ ] **Action 3: Articulation Classification ML:** Slap, Pop, Slide 등의 타현 주법 태깅을 위해, 별도의 전처리 없이 CREPE 내부 임베딩 레이어를 재활용하는 경량 주법 분류기(Transfer Learning) 설계.
+- [ ] **Offset Heuristics (Quality):** CREPE 모델의 Offset(음 종료점) 추적 한계를 보완하여 질척이는 음(Sustain)을 깔끔하게 절삭하는 릴리즈(Release) 휴리스틱 로직 고도화.
