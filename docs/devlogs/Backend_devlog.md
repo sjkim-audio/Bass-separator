@@ -7,7 +7,9 @@
 > Phase 4 Completed (Single-node Concurrency Control & Polling)
 > Phase 4.5 Completed (4-Stem Audio Separation & OS-Agnostic Subprocess)
 > Phase 5 Completed (Data Diversification & Streamlit MVP Frontend)
-> Phase 6 Planned (Algorithm Fine-tuning & Distributed Task Queue)
+> Phase 6 Completed (DSP Parameter Optimization & E2E Debugging)
+> Phase 7 Completed (Task Isolation & VRAM Recovery Mechanism)
+> Phase 8 Planned (Baseline Quantification & Standard Notation Engine)
 
 ## 1. Overview
 이 프로젝트는 완성된 오디오 전사(Transcription) 파이프라인을 다수의 클라이언트(웹/앱)가 호출할 수 있도록 **FastAPI 기반의 RESTful API 서버로 전환**하고, 안정적인 서비스 구동을 위한 **Docker 인프라 환경**을 구축하는 과정을 기록합니다.
@@ -17,6 +19,8 @@
 중기(Phase 3, 4)는 CLI용으로 설계된 파이프라인을 객체 지향적으로 완벽히 분리(`src/core/pipeline.py`)하고, HTTP 통신에 적합한 JSON/DTO 구조로 리팩토링함과 동시에 **다중 사용자 접속 시 발생하는 서버 다운(OOM) 현상을 비동기 폴링과 세마포어로 완벽히 방어**하는 데 성공했습니다.
 
 최근(Phase 4.5, 5)에는 4-Stem 모델을 도입하고 고해상도 MR(Bassless) 음원을 병합 생성하는 로직을 통합했습니다. 이 과정에서 발생한 Windows 환경의 비동기 이벤트 루프 충돌(`NotImplementedError`)과 VRAM 누수 문제를 원천 차단하기 위해, 플랫폼 독립적인 동기 호출(`subprocess.run`)을 비동기 스레드 풀(`loop.run_in_executor`)에 위임하는 하이브리드 아키텍처를 구축했습니다. 또한, **정적 파일 서빙 라우터**와 **Streamlit 기반의 MVP 프론트엔드 웹 데모**를 결합하여 완벽하게 디커플링(Decoupling)된 E2E 클라이언트-서버 시각화 환경을 완성했습니다.
+
+최근(Phase 6, 7)에는 시스템을 프로덕션 레벨로 끌어올리기 위한 **안정성 경화(Hardening)** 및 **오디오 도메인 최적화** 작업에 집중했습니다. 다중 사용자 환경의 경쟁 상태(Race Condition)를 원천 차단하는 **Task 샌드박스(Sandbox) 격리 아키텍처**를 도입하고, OOM 발생 시 파편화된 VRAM을 강제 회수하는 메커니즘을 적용했습니다. 또한, 베이스 기타의 주파수 대역적 특성을 고려한 DSP 파라미터 미세 조정(`fmin`, `HPF`)을 통해 프레임 중복 적재와 대규모 노트 증발(Omission) 현상을 교정하여 E2E 파이프라인의 음악적 정확도를 복원했습니다.
 
 ---
 
@@ -49,6 +53,11 @@
 - **Problem:** 단순 JSON 및 텍스트 데이터만으로는 사용자가 오디오 분석 품질을 검증하거나 다른 DAW(디지털 오디오 워크스테이션)와 연동할 수 없었습니다.
 - **Optimization:** `mido` 라이브러리를 활용한 `MidiRenderer`를 도입하여 물리적 타이밍이 보존된 `.mid` 파일 추출 로직을 신설했습니다. 또한, FastAPI 내부 정적 파일 서빙(`StaticFiles`) 라우터를 마운트하고, Streamlit 전용 프론트엔드(`app.py`)를 구축하여 **오디오 플레이어, 악보 렌더링, 파일 다운로드**를 하나의 화면에 통합했습니다.
 
+### Step 7: Task Isolation & Advanced VRAM Recovery (Phase 6.5 ~ 7)
+- **Problem:** 기존의 공유 디렉토리 구조는 동시성 한도를 높일 경우 임시 파일 클린업 시 **경쟁 상태(Race Condition)**를 유발하여 다른 요청의 파일을 삭제할 위험이 있었습니다. 또한, OOM 발생 시 단순 배치 사이즈 감소 루프만으로는 파이썬 가비지 컬렉터의 지연으로 인해 VRAM 파편화가 누적되는 한계가 있었습니다.
+- **Optimization:** 모든 요청이 `outputs/{task_id}/` 구조의 완벽히 격리된 **샌드박스 디렉토리** 내에서만 수행되도록 경로 계층을 재설계하고, 처리가 끝난 임시 스템 폴더만 타겟팅하여 `shutil.rmtree`로 통삭제하는 스레드 안전(Thread-safe) 환경을 구축했습니다. 피치 트래커에는 `torch.cuda.ipc_collect()`와 `gc.collect()`를 결합한 명시적 메모리 해제 로직을 추가했습니다.
+- **Limitation (Trade-off):** 매 요청마다 샌드박스 디렉토리를 생성/삭제하고 추론 시 강제 가비지 컬렉션을 수행하는 것은 디스크 I/O 및 프로세싱 레이턴시를 소폭 증가시킵니다. 그러나 다중 접속 서버의 무결성(Integrity)과 연쇄 OOM 크래시 방지를 위해 필수적으로 감수해야 할 오버헤드입니다.
+
 ---
 
 ## 3. Challenges & Solutions (Troubleshooting)
@@ -74,6 +83,12 @@
 | **`UnicodeDecodeError` in Subprocess** | Windows 터미널(CP949)과 Demucs 백그라운드 스레드의 UTF-8 디코딩 규격 불일치. | `subprocess.run` 옵션에 `errors='ignore'`를 추가하여 인코딩 충돌 시 프로세스 중단 없이 에러 로그를 무시하도록 패치. |
 | **Infinite 404 Polling & Timeout** | 백엔드 경로 파편화(`app/outputs/` vs `outputs/`) 및 라우터 엔드포인트(`status` vs `tasks`) 불일치로 인한 클라이언트 타임아웃 발생. | 결과를 저장하는 디렉토리를 루트 `outputs/`로 강제 통합(SSOT)하고, API URL과 JSON 뎁스(Flattening)를 프론트엔드 통신 규약과 완전히 일치시킴. |
 | **오디오 404 & UI Broken Link** | 특수문자나 괄호가 포함된 파일명 업로드 시, Demucs 내부에서 이를 언더스코어(`_`)로 정규화하여 프론트엔드가 조합한 URL이 실제 파일 경로와 불일치함. | 프론트엔드(`app.py`)에 정규표현식(`re`)을 활용한 파일명 단순화 헬퍼 로직을 추가하여 Demucs의 디렉토리 생성 규칙과 클라이언트의 URL 요청을 동기화. |
+| **Phase 6~7 (Domain Optimization & Concurrency Safety)** | | |
+| **`[TypeError]` Dataclass Initialization Crash** | `NoteEvent` 모델에서 기본값이 없는 인자(`midi_note`)가 기본값이 있는 인자(`duration=0.0`)보다 뒤에 선언되어 파이썬 객체 생성 문법 충돌 발생. | 파라미터 순서를 재배치하여 비기본값 인자를 상단으로 끌어올려 파이프라인 전역의 런타임 크래시 즉각 해결. |
+| **Time Desync in Pitch Tracking** | VRAM 보호를 위해 오디오를 청크 단위로 나누어 CREPE에 입력 시, 각 청크 경계의 프레임이 중복 적재되어 타임스탬프가 점진적으로 밀리는(Desync) 현상. | 마지막 청크를 제외한 모든 청크 결과물의 마지막 프레임을 절삭(`[:-1]`)하여 병합하도록 슬라이싱 로직 교정. |
+| **Massive Note Omission (DSP Mismatch)** | 5현 베이스 지원을 위해 HPF를 25Hz, `fmin`을 33Hz로 하향했으나, 모델의 최소 한계점(32.7Hz) 이하로 인한 음수 인덱스 슬라이싱 버그가 발생하고 초저역대 럼블 노이즈가 온셋 마스크를 붕괴시킴. | HPF 컷오프를 35Hz, `fmin`을 40Hz의 **Golden State**로 롤백하여, 노이즈로 인한 파서의 과도한 분절 및 노트 삭제 현상 원천 차단. |
+| **Isolated Track Tempo Fallback Failure** | 단일 베이스 트랙 입력 시, 템포 추출을 위한 MR 트랙 변수에 베이스 소스가 그대로 주입되어 고주파 온셋 에너지가 강하게 잡힘에 따라 베이스 전용 BPM 추적(Fallback)이 차단됨. | 단일 트랙 처리 시 `bassless_path`에 명시적으로 `None`을 주입하도록 파이프라인 호출부를 수정하여 베이스 전용 대역폭(`fmax=400`) 추적 활성화. |
+| **Race Condition in File Cleanup** | 다중 클라이언트 접속 시, 공유 폴더의 임시 파일을 삭제하는 기존 로직이 다른 스레드가 점유 중인 파일을 건드릴(Permission/File Not Found) 위험 존재. | 각 태스크별 고유 `task_id` 기반의 **샌드박스 환경**을 구축하고, 파이프라인 종료 시 해당 디렉토리의 가비지 폴더만 타겟팅하여 통삭제(`shutil.rmtree`)함으로써 스레드 안전성 확보. |
 
 ---
 
@@ -88,7 +103,10 @@
 - [x] **Subprocess Isolation (`demucs_runner.py`):** 메모리 누수 방지 및 OS 독립적 프로세스 실행을 위한 스레드 위임 아키텍처 구현.
 - [x] **MIDI Artifact Generation:** `mido` 라이브러리를 활용한 타이밍/운지법 보존형 표준 `.mid` 파일 추출 로직 구축.
 - [x] **Streamlit Web Demo (MVP):** FastAPI와 통신하여 오디오 플레이어와 악보를 렌더링하는 시각화 클라이언트 완성.
-- [ ] **Algorithm Post-processing (Quality):** CREPE 모델의 한계를 보완하기 위한 Offset(노트 종료점) 휴리스틱 개선 및 고스트 노트/배음 필터링 로직 도입.
-- [ ] **Model Fine-tuning (Phase 6):** 실제 베이스 연주-악보 페어 데이터셋을 구축하여 피치 트래커의 인식률과 Viterbi 운지법 확률 모델을 베이스 기타에 특화되도록 재학습.
-- [ ] **Distributed Task Queue:** 단일 노드의 한계를 넘어, 다수의 Worker 노드로 스케일 아웃(Scale-out)이 가능하도록 **Celery + Redis** 기반의 분산 큐잉 시스템 전환.
-- [ ] **Storage TTL Cron Job (Tech Debt):** 지속적으로 누적되는 로컬 결과물(오디오 및 JSON)의 용량 팽창을 막기 위해 만료된 파일을 삭제하는 TTL 셸 스크립트 도입.
+- [x] **Model Fine-tuning (Phase 6):** DSP 파라미터 튜닝 완료 (본격적 가중치 재학습은 데이터셋 구축 이후 진행).
+- [x] **Subprocess Isolation & Concurrency Tuning (Phase 7):** Task 샌드박싱 및 VRAM 강제 반환 메커니즘 구축.
+- [ ] **Action 1: Baseline F1-Score Quantification (High Priority):** 정답 MIDI(Ground Truth)를 갖춘 벤치마크 데이터셋을 구축하여 `src/evaluation.py` 가동. 양자화 전후(Raw vs Quantized)의 **Onset/Pitch F1-Score 초기 기준값(Baseline)**을 문서화하여 향후 알고리즘 개선의 정량적 지표로 활용.
+- [ ] **Action 2: Standard Notation Serialization Engine:** 단순히 텍스트를 출력하는 ASCII 타브를 넘어, **MusicXML 또는 GuitarPro 파일(.gp5)** 포맷을 직접 생성하는 `guitarpro_renderer.py` 구축. (단, 이 작업 전 양자화 로직 내부에 '가독성을 위한 초단기음 평탄화 휴리스틱' 선행 필수).
+- [ ] **Action 3: Articulation Classification ML:** Slap, Pop, Slide 등의 타현 주법을 태깅하기 위해, 별도의 전처리 없이 CREPE 내부 임베딩 레이어를 재활용하는 경량 주법 분류기(Transfer Learning) 설계.
+- [ ] **Distributed Task Queue:** 단일 노드의 한계를 넘어, Worker 노드 스케일 아웃(Scale-out)이 가능하도록 **Celery + Redis** 기반의 비동기 분산 큐잉 시스템으로 전환.
+- [ ] **Storage TTL Cron Job:** 샌드박스에 지속적으로 누적되는 로컬 결과물(오디오, MIDI, JSON)의 디스크 팽창을 막기 위해, 일정 시간(예: 24시간) 경과 후 자동 삭제하는 TTL(Time-To-Live) 데몬 도입.
