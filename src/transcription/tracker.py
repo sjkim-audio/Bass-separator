@@ -4,6 +4,8 @@ import librosa
 import scipy.signal
 import torch
 import torchcrepe
+import gc # 가비지 컬렉터 추가
+
 
 def clean_octave_errors_smart(f0_array, onset_mask, window_size=7, onset_tolerance=4):
     f0_clean = f0_array.copy()
@@ -81,22 +83,32 @@ def get_f0_crepe_robust(audio, sr, hop_length=160, fmin=40, fmax=500, chunk_dura
         
         while not success:
             try:
-                f0_chunk, conf_chunk = torchcrepe.predict(
-                    audio_tensor, sr, hop_length=hop_length, fmin=fmin, fmax=fmax,
-                    model=model_capacity, decoder=torchcrepe.decode.argmax, 
-                    return_periodicity=True, device=device, batch_size=current_batch 
-                )
+                # [Optimization] 추론 시 그래디언트 계산 비활성화로 메모리 점유 최소화
+                with torch.no_grad():
+                    f0_chunk, conf_chunk = torchcrepe.predict(
+                        audio_tensor, sr, hop_length=hop_length, fmin=fmin, fmax=fmax,
+                        model=model_capacity, decoder=torchcrepe.decode.argmax, 
+                        return_periodicity=True, device=device, batch_size=current_batch 
+                    )
                 success = True
             except RuntimeError as e:
                 if "out of memory" in str(e).lower():
-                    if current_batch <= 1:
-                        raise RuntimeError("❌ CUDA OOM: 배치 사이즈를 1까지 줄였으나 메모리가 부족합니다. chunk_duration을 줄이십시오.")
-                    current_batch //= 2
-                    print(f"⚠️ GPU OOM 감지됨. 배치 사이즈를 {current_batch}(으)로 줄이고 재시도합니다...")
+                    # [Correction] 에러 발생 즉시 텐서 참조 해제 및 VRAM 수동 비우기
+                    del audio_tensor
                     if device == 'cuda':
                         torch.cuda.empty_cache()
+                        torch.cuda.ipc_collect() # 파편화된 메모리 회수
+                    gc.collect() # 파이썬 레벨 가비지 컬렉션 강제 실행
+                    
+                    if current_batch <= 1:
+                        raise RuntimeError("❌ CUDA OOM: 배치 사이즈를 1까지 줄였으나 메모리가 부족합니다.")
+                    
+                    current_batch //= 2
+                    print(f"⚠️ GPU OOM 감지. 배치 사이즈 {current_batch}로 재시도...")
+                    # 텐서 재생성
+                    audio_tensor = torch.tensor(audio_chunk).unsqueeze(0).to(device)
                 else:
-                    raise e 
+                    raise e
         
         f0_chunk = f0_chunk.squeeze().cpu().numpy()
         conf_chunk = conf_chunk.squeeze().cpu().numpy()
