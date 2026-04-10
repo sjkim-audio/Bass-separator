@@ -30,17 +30,32 @@
 │   └── outputs/          # 최종 추출물 (Bass, MR, JSON, MIDI) 저장소 (런타임 생성)
 ├── docs/                 # 프로젝트 기술 문서 (표준 Taxonomy 적용)
 │   ├── ADR/              # Architecture Decision Records (설계 의사결정 기록)
+│   │   ├── 001-bass-separation-pipeline.md
+│   │   ├── 002-backend-and-infrastructure.md
+│   │   ├── 003-adopt-crepe-and-optimize-vram-for-pitch-tracking.md
+│   │   └── 004-adopt-onset-aware-smart-octave-correction.md
 │   ├── devlogs/          # 알고리즘 실험 및 인프라 트러블슈팅 일지
+│   │   ├── Algorithm_selection_devlog.md
+│   │   ├── Backend_devlog.md
+│   │   ├── pitch_track_tunning_devlog.md
+│   │   └── Transcription_devlog.md
 │   ├── planning/         # 향후 로드맵, 파인튜닝 계획 및 전략적 트레이드오프
+│   │   ├── Dataset_plan.md
+│   │   ├── Fine_tunning_plan.md
+│   │   ├── Roadmap.md
+│   │   ├── Strategic_Tradeoffs_and_Limitations.md
+│   │   ├── Transcription & MLOps Pipeline.md
+│   │   └── Transcription_Algorithm_Roadmap.md
 │   ├── API_SPEC.md       # 프론트엔드-백엔드 비동기 통신 규약
+│   ├── Transcription_Phase7_Quantizer_Architecture.md # 양자화기 아키텍처 설계
 │   └── Viterbi_Math_Model.md # 생체역학적 운지법 상태 전이 수학적 모델링 해설서
 ├── notebooks/            # EDA, 알고리즘 프로토타이핑 및 R&D 연구 환경
 │   ├── archive/          # 초기 소스 분리 실험 (Demucs, UMX, NMF 등) 아카이브
-│   └── transcription/    # Viterbi HMM, 디바운싱, 옥타브 보정 등 전사 알고리즘 튜닝 기록
+│   └── transcription/    # Viterbi HMM, 디바운싱, 양자화 등 전사 알고리즘 튜닝 기록
 ├── src/                  # 코어 비즈니스 로직 및 DSP 라이브러리 (도메인 분리)
 │   ├── core/             # 파이프라인 제어 및 프로세스 격리
 │   │   ├── demucs_runner.py # Demucs 4-Stem 오디오 분리 및 Numpy MR 병합 로직
-│   │   └── pipeline.py      # E2E 전사 파이프라인 (분리 -> 피치 트래킹 -> 악보화)
+│   │   └── pipeline.py      # E2E 전사 파이프라인 (분리 -> 트래킹 -> 디코딩 -> 양자화)
 │   ├── models/           # 데이터 스키마 및 도메인 객체
 │   │   └── events.py        # 파이프라인 전반을 관통하는 불변 객체(NoteEvent) 모델
 │   ├── renderers/        # 최종 결과물 포맷팅 로직
@@ -48,16 +63,16 @@
 │   │   └── tab_renderer.py  # ASCII 텍스트 기반 퀀타이즈 타브 악보 렌더러
 │   ├── transcription/    # 음향 분석 및 타브 악보 변환 핵심 알고리즘
 │   │   ├── fingering.py     # Viterbi HMM 기반 최적 운지법(Fret/String) 탐색 알고리즘
-│   │   ├── parser.py        # 오디오 데이터 전처리 및 파싱 (디바운싱, Duration 역산)
-│   │   ├── quantization.py  # BPM 기반 밀리초(ms) 물리량의 음악적 양자화 (격자 스냅)
+│   │   ├── parser.py        # 오디오 데이터 파싱 및 기호 영역 후처리 (Garbage Pitch Culling)
+│   │   ├── quantization.py  # BPM 기반 밀리초(ms) 물리량의 음악적 양자화 (동적 격자 스냅)
 │   │   ├── tab_generator.py # 노트 이벤트를 악보 좌표계로 매핑
-│   │   └── tracker.py       # CREPE 기반 피치 트래킹(Pitch Detection) 모듈
+│   │   └── tracker.py       # CREPE 기반 피치 트래킹(Pitch Detection) 및 옥타브 보정
 │   ├── augmentation.py   # 파인튜닝용 오디오 데이터 합성 및 증강 모듈
 │   ├── env_setup.py      # 의존성 및 환경 구축 스크립트
-│   ├── evaluation.py     # 오디오 소스 분리 정량 평가 모듈 (SDR, SIR, SAR)
-│   ├── main.py           # CLI 환경 전용 단일 파이프라인 실행 스크립트
-│   ├── run_eval.py       # 평가 파이프라인 일괄 실행 스크립트
-│   ├── utils.py          # 공통 유틸리티 함수
+│   ├── evaluation.py     # 분리(SDR) 및 채보(mir_eval F1-Score) 정량 평가 모듈
+│   ├── main.py           # CLI 환경 전용 단일 파이프라인 실행 래퍼 스크립트
+│   ├── run_eval.py       # 다중 도메인 평가 파이프라인 일괄 실행 CLI
+│   ├── utils.py          # 공통 유틸리티 및 실험 결과 I/O 함수
 │   └── visualization.py  # 멜 스펙트로그램 및 피아노 롤 시각화 모듈
 ├── app.py                # Streamlit 기반 프론트엔드 웹 데모 (MVP 시각화 및 다운로드)
 ├── docker-compose.yml    # API 서버 컨테이너 오케스트레이션
@@ -65,5 +80,3 @@
 ├── requirements.txt      # Python 패키지 의존성
 ├── LICENSE               # 오픈소스 라이선스
 └── README.md             # 프로젝트 개요 및 가이드 (현재 파일)
-
-```
