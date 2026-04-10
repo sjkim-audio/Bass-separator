@@ -34,16 +34,24 @@ class MidiRenderer:
         # note_on과 note_off 이벤트를 시간순으로 하나의 배열로 병합
         midi_events = []
         for i, event in enumerate(sorted_events):
-            # [Fix] Heuristic 추측 로직 제거. Parser가 역산한 실제 duration 데이터를 그대로 신뢰함.
             duration = getattr(event, 'duration', 0.0)
-            
-            # 파이프라인 에러 방지용 최소 길이(0.05초) 보장 (극단적 스냅 방지)
-            if duration <= 0.0:
+            if duration <= 0.05: 
                 duration = 0.05 
 
             on_time = event.time
             off_time = event.time + duration
             
+            # 🔴 [핵심 수정] 단선율(Monophonic) 오버랩 커팅 로직
+            # 동일 피치 연타가 뭉개지는 것을 막기 위해, 앞 노트의 끝부분을 
+            # 다음 노트 시작점보다 무조건 10ms(0.01초) 전에 강제 종료(Note Off) 시킴.
+            if i < len(sorted_events) - 1:
+                next_on_time = sorted_events[i+1].time
+                if off_time >= next_on_time:
+                    off_time = next_on_time - 0.010
+                    # 음이 완전히 겹쳐서 off_time이 역전되는 기형적 상황 방어
+                    if off_time <= on_time: 
+                        off_time = on_time + 0.020
+
             velocity = int(64 + (getattr(event, 'confidence', 1.0) * 63))
             
             midi_events.append({'type': 'note_on', 'time': on_time, 'note': event.midi_note, 'velocity': velocity})

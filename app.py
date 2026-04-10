@@ -71,26 +71,31 @@ if st.session_state.result_data:
     data = st.session_state.result_data
     task_id = st.session_state.task_id
     
-    # [Fix] Demucs 디렉토리 생성 규칙에 맞춘 파일명 정규화 (공백 및 특수문자를 언더스코어로 치환)
+    # [Fix 1] 다운로드 파일명 정규화: 한글(가-힣) 허용 및 빈 문자열 Fallback 방어
     raw_filename = os.path.splitext(st.session_state.original_filename)[0]
-    safe_filename = re.sub(r'[^a-zA-Z0-9]', '_', raw_filename)
-    # 연속된 언더스코어 정리
+    safe_filename = re.sub(r'[^a-zA-Z0-9가-힣]', '_', raw_filename)
     safe_filename = re.sub(r'_+', '_', safe_filename).strip('_')
+    
+    # 특수문자로만 이루어진 파일명이라 모두 치환되어 빈 문자열이 된 경우
+    if not safe_filename:
+        safe_filename = "bass_track"
     
     st.divider()
     st.subheader("✅ 분석 완료")
     
     col1, col2 = st.columns(2)
     
-    demucs_base_url = f"http://localhost:8000/api/v1/downloads/demucs/htdemucs/{task_id}_{raw_filename}"
-    midi_url = f"http://localhost:8000/api/v1/downloads/{task_id}.mid"
+    # [Fix 2] 오디오 서빙 URL 인코딩 (한글 및 공백 파일명 파싱 에러 방어)
+    import urllib.parse
+    encoded_folder_name = urllib.parse.quote(f"{task_id}_{raw_filename}")
+    demucs_base_url = f"{API_BASE_URL}/downloads/demucs/htdemucs/{encoded_folder_name}"
+    midi_url = f"{API_BASE_URL}/downloads/{task_id}.mid"
     
     with col1:
         st.markdown("#### 🎧 추출된 베이스 트랙")
         bass_audio_url = f"{demucs_base_url}/bass.wav"
         st.audio(bass_audio_url, format="audio/wav")
-        # 오디오 404 에러 대비 경고문
-        st.caption(f"오디오가 재생되지 않으면 원본 파일명을 단순한 영문/숫자로 변경하여 다시 시도하십시오.")
+        # URL 인코딩을 적용했으므로 파일명 변경 요구 경고문은 제거하거나 완화해도 좋습니다.
         
     with col2:
         st.markdown("#### 🔇 베이스 제외 MR (Backing Track)")

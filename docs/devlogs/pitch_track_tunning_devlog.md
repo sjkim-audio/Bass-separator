@@ -1,6 +1,8 @@
 ### 6.2. Parameter Tuning Iterations (Phase 6)
 
-본 섹션은 분리된 베이스 음원(Stem)을 대상으로 한 피치 트래킹 및 파싱 모듈의 하이퍼파라미터 최적화 실험 기록입니다. E2E 파이프라인 정합성을 위해, 정량적 수치 변화에 따른 오디오-MIDI 시각적 대조(Time-alignment) 결과를 기반으로 튜닝을 진행했습니다.
+본 섹션은 분리된 베이스 음원(Stem)을 대상으로 한 피치 트래킹 및 파싱 모듈의 하이퍼파라미터 최적화 실험 기록입니다. E2E 파이프라인 정합성을 위해, 정량적 수치 변화에 따른 오디오-MIDI 시각적 대조(Time-alignment) 결과를 기반으로 튜닝을 진행했습니다. 
+본 devlog의 튜닝 결과는 [`src/transcription/tracker.py`](../../src/transcription/tracker.py)와 [`src/transcription/parser.py`](../../src/transcription/parser.py)에 반영되어 있습니다.
+
 
 ---
 

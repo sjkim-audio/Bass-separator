@@ -7,19 +7,17 @@ import soundfile as sf
 from pathlib import Path
 from typing import Tuple
 
-async def separate_and_generate_stems(input_audio_path: str, output_dir: str = "outputs/demucs") -> Tuple[str, str]:
+async def separate_and_generate_stems(input_audio_path: str, output_dir: str) -> Tuple[str, str]:
     input_path = Path(input_audio_path)
     if not input_path.exists():
         raise FileNotFoundError(f"원본 오디오 파일을 찾을 수 없습니다: {input_path}")
 
     os.makedirs(output_dir, exist_ok=True)
     
+    # [Correction] -o 옵션으로 전달되는 output_dir을 task_id 경로로 사용
     command = [
-        sys.executable, 
-        "-m", "demucs.separate",
-        "-n", "htdemucs", 
-        "-o", output_dir, 
-        str(input_path)
+        sys.executable, "-m", "demucs.separate",
+        "-n", "htdemucs", "-o", output_dir, str(input_path)
     ]
     
     print(f"🎵 [Demucs] 4-Stem 음원 분리 시작 (Thread Pool 위임): {' '.join(command)}")
@@ -34,6 +32,7 @@ async def separate_and_generate_stems(input_audio_path: str, output_dir: str = "
     if process_result.returncode != 0:
         raise RuntimeError(f"Demucs 분리 실패 (Exit Code {process_result.returncode}):\n{process_result.stderr}")
     
+    # Demucs는 output_dir/htdemucs/파일명/ 경로에 파일을 생성함
     model_out_dir = Path(output_dir) / "htdemucs" / input_path.stem
     bass_path = model_out_dir / "bass.wav"
     drums_path = model_out_dir / "drums.wav"

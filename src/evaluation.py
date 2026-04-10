@@ -2,25 +2,21 @@ import os
 import numpy as np
 import librosa
 import scipy.signal
-import museval
 import traceback
+from typing import List, Dict
+
+import museval
+import mir_eval
+import pretty_midi
+
+from src.models.events import NoteEvent
 
 def align_audio(ref: np.ndarray, est: np.ndarray, sr: int = 44100):
-    """
-    [전처리] Cross-Correlation을 사용하여 두 오디오 간의 미세한 시간 지연(Latency)을 보정한다.
-    딥러닝 분리 모델이 유발하는 위상 밀림 현상을 평가 전에 정렬해야 정확한 SDR 산출이 가능하다.
-    """
-    max_len = sr * 30  # 연산 속도 최적화를 위해 초반 30초만 사용하여 지연량 추정
-    
+    max_len = sr * 30  
     ref_mono = np.mean(ref, axis=0) if ref.ndim > 1 else ref
     est_mono = np.mean(est, axis=0) if est.ndim > 1 else est
     
-    correlation = scipy.signal.correlate(
-        ref_mono[:max_len], 
-        est_mono[:max_len], 
-        mode='full'
-    )
-    
+    correlation = scipy.signal.correlate(ref_mono[:max_len], est_mono[:max_len], mode='full')
     lag = int(np.argmax(correlation) - (len(est_mono[:max_len]) - 1))
     
     if lag > 0:
@@ -34,9 +30,6 @@ def align_audio(ref: np.ndarray, est: np.ndarray, sr: int = 44100):
     return ref, est
 
 def evaluate_separation(reference_path: str, estimated_path: str, align: bool = True) -> dict:
-    """
-    [평가] BSSEval v4 표준 규격을 사용하여 SDR, SIR, SAR 지표를 산출한다.
-    """
     ref, sr = librosa.load(reference_path, sr=None, mono=False)
     est, _ = librosa.load(estimated_path, sr=sr, mono=False)
 
@@ -50,11 +43,9 @@ def evaluate_separation(reference_path: str, estimated_path: str, align: bool = 
     if align:
         ref, est = align_audio(ref, est, sr)
 
-    # Museval 규격: (n_sources, n_samples, n_channels)
     ref_eval = ref.T[np.newaxis, :, :]
     est_eval = est.T[np.newaxis, :, :]
 
-    # 1초(win=sr) 단위의 윈도우로 평가 수행
     sdr, isr, sir, sar, _ = museval.eval_bss_v4(ref_eval, est_eval, win=sr)
 
     return {
@@ -65,25 +56,118 @@ def evaluate_separation(reference_path: str, estimated_path: str, align: bool = 
         "hop_sec": 1.0
     }
 
-def run_evaluation(ref_path: str, est_path: str, align: bool = True) -> dict:
-    """
-    [래퍼] 평가를 실행하고 콘솔에 중앙값(Median) 요약을 출력한다.
-    """
-    print(f"📊 Processing: {os.path.basename(est_path)}")
+def run_separation_evaluation(ref_path: str, est_path: str, align: bool = True) -> dict:
+    print(f"📊 [Separation] Processing: {os.path.basename(est_path)}")
     try:
-        metrics_data = evaluate_separation(ref_path, est_path, align=align)
+        metrics = evaluate_separation(ref_path, est_path, align=align)
+        print("-" * 40)
+        print("🔹 Separation Summary (BSSEval v4)")
+        print("-" * 40)
+        print(f"✅ Median SDR: {np.nanmedian(metrics['SDR']):.2f} dB")
+        print(f"✅ Median SIR: {np.nanmedian(metrics['SIR']):.2f} dB")
+        print(f"✅ Median SAR: {np.nanmedian(metrics['SAR']):.2f} dB")
+        print("-" * 40)
+        return metrics
+    except Exception as e:
+        print(f"❌ Error during separation evaluation: {e}")
+        traceback.print_exc()
+        return {}
+
+class TranscriptionEvaluator:
+    @staticmethod
+    def load_midi_to_mir_eval(midi_path: str):
+        pm = pretty_midi.PrettyMIDI(midi_path)
+        intervals, pitches = [], []
+        
+        for instrument in pm.instruments:
+            if not instrument.is_drum:
+                for note in instrument.notes:
+                    intervals.append([note.start, note.end])
+                    pitches.append(pretty_midi.note_number_to_hz(note.pitch))
+                    
+        if not intervals:
+            return np.empty((0, 2)), np.empty((0,))
+        return np.array(intervals), np.array(pitches)
+
+    @staticmethod
+    def _events_to_mir_eval(events: List[NoteEvent], use_quantized: bool = False):
+        intervals, pitches = [], []
+        for e in events:
+            if use_quantized and e.quantized_time is not None and e.quantized_duration is not None:
+                onset, offset = e.quantized_time, e.quantized_time + e.quantized_duration
+            else:
+                onset = e.time
+                offset = onset + (e.duration if e.duration > 0 else 0.05)
+                
+            intervals.append([onset, offset])
+            pitches.append(librosa.midi_to_hz(e.midi_note))
+            
+        if not intervals:
+            return np.empty((0, 2)), np.empty((0,))
+        return np.array(intervals), np.array(pitches)
+
+    @staticmethod
+    def evaluate(ref_midi_path: str, est_events: List[NoteEvent], test_quantized: bool = False) -> Dict[str, float]:
+        ref_intervals, ref_pitches = TranscriptionEvaluator.load_midi_to_mir_eval(ref_midi_path)
+        est_intervals, est_pitches = TranscriptionEvaluator._events_to_mir_eval(est_events, use_quantized=test_quantized)
+        
+        if len(ref_intervals) == 0 and len(est_intervals) == 0:
+            return {"Onset_F1": 1.0, "Onset_Pitch_F1": 1.0}
+        elif len(ref_intervals) == 0 or len(est_intervals) == 0:
+             return {"Onset_F1": 0.0, "Onset_Pitch_F1": 0.0}
+
+        scores = mir_eval.transcription.evaluate(
+            ref_intervals, ref_pitches, est_intervals, est_pitches,
+            onset_tolerance=0.05, pitch_tolerance=50.0, offset_ratio=0.2, offset_min_tolerance=0.05
+        )
+        
+        return {
+            "Onset_Precision": round(scores['Precision_no_offset'], 4),
+            "Onset_Recall": round(scores['Recall_no_offset'], 4),
+            "Onset_F1": round(scores['F-measure_no_offset'], 4),
+            "Onset_Pitch_Precision": round(scores['Precision'], 4),
+            "Onset_Pitch_Recall": round(scores['Recall'], 4),
+            "Onset_Pitch_F1": round(scores['F-measure'], 4)
+        }
+
+async def run_transcription_evaluation(ref_midi_path: str, audio_path: str, is_isolated: bool = False) -> dict:
+    """
+    [래퍼] 파이프라인을 구동하여 채보를 수행하고 정확도를 산출한다.
+    is_isolated=True일 경우 무거운 Demucs 분리 과정을 생략하고 즉시 평가를 진행한다.
+    """
+    print(f"🎵 [Transcription] Processing Audio: {os.path.basename(audio_path)}")
+    from src.core.pipeline import run_transcription_pipeline
+    
+    bass_path = audio_path
+    bassless_path = None
+    
+    try:
+        if not is_isolated:
+            from src.core.demucs_runner import separate_and_generate_stems
+            print("⏳ 믹스 음원이 감지되었습니다. Demucs 음원 분리를 먼저 수행합니다...")
+            temp_out_dir = "outputs/eval_temp"
+            bass_path, bassless_path = await separate_and_generate_stems(audio_path, output_dir=temp_out_dir)
+        else:
+            print("⚡ 단일 베이스 트랙(Isolated) 모드입니다. Demucs를 생략하고 즉시 채보를 시작합니다.")
+            
+        _, _, quantized_events = run_transcription_pipeline(bass_path, bassless_path)
+        
+        # 🔴 [수정] Raw 단계의 F1-Score와 Quantized(오버랩 해결 후) 단계의 F1-Score를 동시 검증
+        metrics_raw = TranscriptionEvaluator.evaluate(ref_midi_path, quantized_events, test_quantized=False)
+        metrics_quantized = TranscriptionEvaluator.evaluate(ref_midi_path, quantized_events, test_quantized=True)
         
         print("-" * 40)
-        print("🔹 Summary Statistics (BSSEval v4)")
+        print("🔹 Transcription Summary (mir_eval)")
         print("-" * 40)
-        print(f"✅ Median SDR: {np.nanmedian(metrics_data['SDR']):.2f} dB")
-        print(f"✅ Median SIR: {np.nanmedian(metrics_data['SIR']):.2f} dB")
-        print(f"✅ Median SAR: {np.nanmedian(metrics_data['SAR']):.2f} dB")
+        print(f"✅ [Raw] Onset-Pitch F1-Score        : {metrics_raw['Onset_Pitch_F1'] * 100:.2f}%")
+        print(f"✅ [Quantized] Onset-Pitch F1-Score  : {metrics_quantized['Onset_Pitch_F1'] * 100:.2f}%")
         print("-" * 40)
         
-        return metrics_data
+        # Quantized 기준 지표를 최종 반환 (파이프라인 최적화 목표)
+        return metrics_quantized
         
     except Exception as e:
-        print(f"❌ Error during evaluation: {e}")
+        print(f"❌ Error during transcription evaluation: {e}")
+        import traceback
         traceback.print_exc()
         return {}
