@@ -26,10 +26,14 @@ class PitchParser:
         note_start_frame = 0
         blank_counter = 0
 
+        # [공학적 조율]
+        # MIN_DURATION_FRAMES: 7 (70ms) 유지. 슬라이드 시 발생하는 띠리링(Fragmentation) 현상 방어선.
+        # TOLERANCE_FRAMES: 15.0 (150ms)로 상향. 서스테인 끝자락의 신뢰도 하락 구간을 관성으로 버티게 함.
+        # RETRIGGER_CONF_THRESH: 0.6으로 상향. 동일 피치 연타 시 발생하는 미세한 신뢰도 균열을 좀 더 예민하게 포착.
         MIN_DURATION_FRAMES = 7
-        TOLERANCE_FRAMES = 6.5
+        TOLERANCE_FRAMES = 15.0
         LATENCY_COMP_SEC = 0.005
-        RETRIGGER_CONF_THRESH = 0.5 
+        RETRIGGER_CONF_THRESH = 0.6 
 
         valid_mask = (f0_array > 0) & (~np.isnan(f0_array))
         midi_array = np.full(len(f0_array), np.nan)
@@ -47,6 +51,7 @@ class PitchParser:
                     current_note = midi_note
                     note_start_frame = i
                     
+                # 피치 변경 또는 Onset 감지 시 노트 분할
                 elif (current_note != midi_note) or (current_onset is True):
                     duration_frames = i - note_start_frame
                     if duration_frames >= MIN_DURATION_FRAMES:
@@ -57,6 +62,7 @@ class PitchParser:
                     current_note = midi_note
                     note_start_frame = i
                     
+                # 신뢰도 급락(Dip) 시 연타로 간주하여 강제 재트리거
                 elif (conf_val < RETRIGGER_CONF_THRESH):
                     duration_frames = i - note_start_frame
                     if duration_frames >= MIN_DURATION_FRAMES:
@@ -64,7 +70,7 @@ class PitchParser:
                         duration_sec = float(duration_frames * frame_time)
                         comp_start_time = max(0, (note_start_frame * frame_time) - LATENCY_COMP_SEC)
                         events.append(self._create_event(current_note, comp_start_time, duration_sec, conf_avg))
-                    current_note = None
+                    current_note = None # 다음 프레임에서 새 노트를 시작하도록 초기화
                     
             else:
                 blank_counter += 1
@@ -88,7 +94,6 @@ class PitchParser:
                 events.append(self._create_event(current_note, comp_start_time, duration_sec, conf))
 
         events = self._post_process_garbage_pitch(events)
-
         return events
 
     def _create_event(self, midi_note: int, time_sec: float, duration_sec: float, confidence: float) -> NoteEvent:
@@ -98,27 +103,16 @@ class PitchParser:
             return NoteEvent(time=time_sec, duration=duration_sec, midi_note=midi_note, string_idx=pos[0], fret=pos[1], confidence=confidence)
         return NoteEvent(time=time_sec, duration=duration_sec, midi_note=midi_note, confidence=confidence)
 
-    # 🔴 [수정] 원본 리스트의 불변성을 유지하는 순수 함수 구조로 리팩토링
     def _post_process_garbage_pitch(self, events: List[NoteEvent]) -> List[NoteEvent]:
-        """
-        슬랩 팝(Pop) 타격 시 발생하는 짧은 옥타브 쓰레기 노트를 식별하여 
-        삭제하고, 진짜 노트의 어택 타이밍을 보정하는 기호 영역 필터.
-        """
-        if not events: 
-            return []
-            
+        if not events: return []
         working_events = events.copy()
         cleaned_events = []
         i = 0
-        
         while i < len(working_events) - 1:
             curr_note = working_events[i]
             next_note = working_events[i+1]
-            
             gap = next_note.time - (curr_note.time + curr_note.duration)
-
             if curr_note.duration <= 0.06 and gap <= 0.04 and abs(curr_note.midi_note - next_note.midi_note) >= 5:
-                # `update` 메서드(불변성 보장)를 통해 새로운 객체 생성
                 adjusted_next_note = next_note.update(
                     time=curr_note.time,  
                     duration=next_note.duration + (next_note.time - curr_note.time)
@@ -126,11 +120,8 @@ class PitchParser:
                 working_events[i+1] = adjusted_next_note
                 i += 1
                 continue
-
             cleaned_events.append(curr_note)
             i += 1
-            
         if i == len(working_events) - 1:
             cleaned_events.append(working_events[-1])
-            
         return cleaned_events
