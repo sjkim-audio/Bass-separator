@@ -107,7 +107,7 @@ class TranscriptionEvaluator:
         return np.array(intervals), np.array(pitches)
 
     @staticmethod
-    def evaluate(ref_midi_path: str, est_events: List[NoteEvent], test_quantized: bool = False) -> Dict[str, float]:
+    def evaluate(ref_midi_path: str, est_events: List[NoteEvent], test_quantized: bool = False, onset_tolerance: float = 0.05) -> Dict[str, float]:
         ref_intervals, ref_pitches = TranscriptionEvaluator.load_midi_to_mir_eval(ref_midi_path)
         est_intervals, est_pitches = TranscriptionEvaluator._events_to_mir_eval(est_events, use_quantized=test_quantized)
         
@@ -118,9 +118,10 @@ class TranscriptionEvaluator:
 
         scores = mir_eval.transcription.evaluate(
             ref_intervals, ref_pitches, est_intervals, est_pitches,
-            onset_tolerance=0.05, pitch_tolerance=50.0, offset_ratio=0.2, offset_min_tolerance=0.05
+            onset_tolerance=onset_tolerance,  # 동적 할당
+            pitch_tolerance=50.0, offset_ratio=0.2, offset_min_tolerance=0.05
         )
-        
+
         return {
             "Onset_Precision": round(scores['Precision_no_offset'], 4),
             "Onset_Recall": round(scores['Recall_no_offset'], 4),
