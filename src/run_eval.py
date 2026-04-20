@@ -14,11 +14,11 @@ def main():
     parser.add_argument("--est", type=str, required=True, 
                         help="추정 파일/입력 경로 (sep: 추정 WAV, trans: 분석할 오디오 WAV)")
     
-    # [신설] 단일 베이스 트랙 처리용 플래그
+    # 단일 베이스 트랙 처리용 플래그
     parser.add_argument("--isolated", action="store_true", 
                         help="[trans 모드 전용] 입력된 오디오가 믹스가 아닌 단일 베이스 트랙(DI)일 경우 Demucs를 생략합니다.")
     
-    # 👇 여기에 추가합니다 (채보 관련 세팅 그룹)
+    # Onset 허용 오차 플래그 추가
     parser.add_argument("--onset_tolerance", type=float, default=0.1, 
                         help="Onset 일치 허용 오차 (초 단위, 기본값 0.1s = 100ms)")
     
@@ -33,7 +33,7 @@ def main():
     if args.mode == "sep":
         metrics = run_separation_evaluation(args.ref, args.est, align=True)
     elif args.mode == "trans":
-        # 👇 파서에서 받은 args.onset_tolerance를 함수로 전달합니다
+        # 파서에서 받은 파라미터 전달
         metrics = asyncio.run(run_transcription_evaluation(
             args.ref, 
             args.est, 

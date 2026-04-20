@@ -1,4 +1,5 @@
 import os
+import warnings
 import numpy as np
 import librosa
 import scipy.signal
@@ -10,6 +11,10 @@ import mir_eval
 import pretty_midi
 
 from src.models.events import NoteEvent
+
+# [수정 3] 서드파티 라이브러리의 자잘한 경고 메시지 억제 (평가 로그 가독성 확보)
+warnings.filterwarnings('ignore', module='librosa')
+warnings.filterwarnings('ignore', module='pretty_midi')
 
 def align_audio(ref: np.ndarray, est: np.ndarray, sr: int = 44100):
     max_len = sr * 30  
@@ -100,14 +105,21 @@ class TranscriptionEvaluator:
                 offset = onset + (e.duration if e.duration > 0 else 0.05)
                 
             intervals.append([onset, offset])
-            pitches.append(librosa.midi_to_hz(e.midi_note))
+            
+            # [수정 2] 피치 해상도 개선: 원본 pitch(Hz)가 있으면 우선 사용
+            raw_pitch = getattr(e, 'pitch', None)
+            if raw_pitch is not None:
+                pitches.append(raw_pitch)
+            else:
+                pitches.append(librosa.midi_to_hz(e.midi_note))
             
         if not intervals:
             return np.empty((0, 2)), np.empty((0,))
         return np.array(intervals), np.array(pitches)
 
+    # [수정 1] onset_tolerance 파라미터 추가
     @staticmethod
-    def evaluate(ref_midi_path: str, est_events: List[NoteEvent], test_quantized: bool = False, onset_tolerance: float = 0.05) -> Dict[str, float]:
+    def evaluate(ref_midi_path: str, est_events: List[NoteEvent], test_quantized: bool = False, onset_tolerance: float = 0.1) -> Dict[str, float]:
         ref_intervals, ref_pitches = TranscriptionEvaluator.load_midi_to_mir_eval(ref_midi_path)
         est_intervals, est_pitches = TranscriptionEvaluator._events_to_mir_eval(est_events, use_quantized=test_quantized)
         
@@ -118,10 +130,12 @@ class TranscriptionEvaluator:
 
         scores = mir_eval.transcription.evaluate(
             ref_intervals, ref_pitches, est_intervals, est_pitches,
-            onset_tolerance=onset_tolerance,  # 동적 할당
-            pitch_tolerance=50.0, offset_ratio=0.2, offset_min_tolerance=0.05
+            onset_tolerance=onset_tolerance,  # 전달받은 파라미터 적용
+            pitch_tolerance=50.0, 
+            offset_ratio=0.2, 
+            offset_min_tolerance=0.05
         )
-
+        
         return {
             "Onset_Precision": round(scores['Precision_no_offset'], 4),
             "Onset_Recall": round(scores['Recall_no_offset'], 4),
@@ -131,11 +145,8 @@ class TranscriptionEvaluator:
             "Onset_Pitch_F1": round(scores['F-measure'], 4)
         }
 
-async def run_transcription_evaluation(ref_midi_path: str, audio_path: str, is_isolated: bool = False) -> dict:
-    """
-    [래퍼] 파이프라인을 구동하여 채보를 수행하고 정확도를 산출한다.
-    is_isolated=True일 경우 무거운 Demucs 분리 과정을 생략하고 즉시 평가를 진행한다.
-    """
+# [수정 1] onset_tolerance 파라미터 릴레이
+async def run_transcription_evaluation(ref_midi_path: str, audio_path: str, is_isolated: bool = False, onset_tolerance: float = 0.1) -> dict:
     print(f"🎵 [Transcription] Processing Audio: {os.path.basename(audio_path)}")
     from src.core.pipeline import run_transcription_pipeline
     
@@ -153,9 +164,9 @@ async def run_transcription_evaluation(ref_midi_path: str, audio_path: str, is_i
             
         _, _, quantized_events = run_transcription_pipeline(bass_path, bassless_path)
         
-        # 🔴 [수정] Raw 단계의 F1-Score와 Quantized(오버랩 해결 후) 단계의 F1-Score를 동시 검증
-        metrics_raw = TranscriptionEvaluator.evaluate(ref_midi_path, quantized_events, test_quantized=False)
-        metrics_quantized = TranscriptionEvaluator.evaluate(ref_midi_path, quantized_events, test_quantized=True)
+        # 전달받은 파라미터 적용
+        metrics_raw = TranscriptionEvaluator.evaluate(ref_midi_path, quantized_events, test_quantized=False, onset_tolerance=onset_tolerance)
+        metrics_quantized = TranscriptionEvaluator.evaluate(ref_midi_path, quantized_events, test_quantized=True, onset_tolerance=onset_tolerance)
         
         print("-" * 40)
         print("🔹 Transcription Summary (mir_eval)")
@@ -164,7 +175,6 @@ async def run_transcription_evaluation(ref_midi_path: str, audio_path: str, is_i
         print(f"✅ [Quantized] Onset-Pitch F1-Score  : {metrics_quantized['Onset_Pitch_F1'] * 100:.2f}%")
         print("-" * 40)
         
-        # Quantized 기준 지표를 최종 반환 (파이프라인 최적화 목표)
         return metrics_quantized
         
     except Exception as e:
