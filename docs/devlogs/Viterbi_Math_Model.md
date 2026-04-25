@@ -65,7 +65,7 @@ $$C_{stay} = \begin{cases} -2.0 & \text{if } u = v \\ 0 & \text{otherwise} \end{
 
 ---
 
-### 3. Viterbi 디코딩 과정 (Forward-Backward Algorithm)
+### 3. Viterbi 디코딩 과정 (Viterbi Decoding Process)
 
 파이썬 코드의 `decode` 메서드는 다음 단계를 거쳐 최적해를 연산합니다.
 
