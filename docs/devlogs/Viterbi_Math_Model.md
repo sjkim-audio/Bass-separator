@@ -79,3 +79,26 @@ $$C_{stay} = \begin{cases} -2.0 & \text{if } u = v \\ 0 & \text{otherwise} \end{
 4.  **Backward Pass (역추적):**
     * 마지막 시점 $T$에서 $DP[T]$가 가장 작은 인덱스를 선택.
     * $Backpointer$ 테이블을 역순으로 거슬러 올라가며 전역 최적 경로(Global Optimal Path)를 복원.
+  
+---
+
+### 4. 수학적/논리적 모델 교정 및 보완 (Mathematical Refinements)
+
+본 섹션은 초기 모델링 이후 수학적 엄밀성과 물리적 타당성을 강화하기 위해 추가로 교정된 수식과 알고리즘 정의를 기술합니다.
+
+#### 4.1. 목적 함수 제약 조건의 엄밀화 (Objective Function Constraints)
+초기 목적 함수 수식에서는 전이 비용(Transition Cost)만을 명시하였으나, 은닉 마르코프 모델(HMM)의 완전한 형태를 갖추기 위해 방출 비용(Emission Cost)에 대한 제약 조건을 추가했습니다. 베이스 기타 운지 모델에서 특정 음정 $o_t$를 낼 수 있는 유효한 프렛 위치 집합 $C_t$에 대한 방출 비용은 $0$이며, 그 외의 상태는 무한대로 간주됩니다. 따라서 아래와 같은 제약 조건(Subject to)을 명시하여 수학적 오독을 방지합니다.
+
+$$X^* = \arg\min_{x_1 \dots x_T} \sum_{t=2}^{T} T(x_{t-1}, x_t, \Delta t)$$
+$$\text{subject to } x_t \in C_t \quad \forall t \in \{1, \dots, T\}$$
+
+#### 4.2. 동적 시간 가중치의 하한선 보장 (Lower Bound for Time Multiplier)
+기존의 시간 가중치 수식 $M_{\Delta t} = \frac{1}{\max(\Delta t, 0.05)}$은 $\Delta t$가 커질수록 전체 이동 페널티를 $0$에 수렴하게 만드는 논리적 허점을 안고 있었습니다. 연주 시간이 아무리 충분히 주어지더라도, 지판의 양극단을 오가는 물리적 도약에는 최소한의 생체역학적 기본 비용이 발생해야 합니다. 이를 교정하기 위해 물리적 이동 한계치를 대변하는 상수항 $k$를 추가하여 하한 비용(Baseline Cost)을 보장합니다.
+
+$$M_{\Delta t} = \frac{1}{\max(\Delta t, 0.05)} + k$$
+
+#### 4.3. 개방현 진입 비용의 휴리스틱 계수 정의 (Heuristics in Open String Transitions)
+Case B (개방현 $\rightarrow$ 닫힌 현)의 비용 수식 $C_{fret} = W_f \times f_2 \times 0.5 \times M_{\Delta t}$에 사용된 상수 $0.5$의 물리적 의미를 명확히 정의합니다. 개방현 연주 시 연주자의 왼손은 지판에서 완전히 이탈하지 않고 다음 연주를 위해 넥(Neck)의 가상 중립 포지션(통상적으로 로우 프렛 구간)에 대기합니다. 즉, 계수 $0.5$는 도착지 $f_2$ 전체를 페널티로 부과하지 않고, 이 가상의 중립 위치로부터 도착지까지의 상대적 도약 거리만을 산정하기 위한 도메인 특화 보정 계수입니다.
+
+#### 4.4. 알고리즘 명칭의 학술적 정립 (Terminology Correction)
+모델의 전역 최적해를 연산하는 과정을 설명함에 있어 'Forward-Backward Algorithm'이라는 용어의 혼용을 배제하고 'Viterbi Decoding Process'로 명칭을 완전히 정립했습니다. Forward-Backward 알고리즘은 모델의 파라미터 학습(Baum-Welch) 및 각 상태의 주변 확률(Marginal Probability) 계산에 사용되는 반면, 본 모델의 핵심 목적인 '가장 확률이 높은 단일 최적 경로(Single Best Path)' 탐색에는 Viterbi 디코딩이 학술적으로 정확한 개념입니다.
