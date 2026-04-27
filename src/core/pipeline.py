@@ -24,7 +24,8 @@ def run_transcription_pipeline(bass_path: str, bassless_path: Optional[str] = No
     raw_events = parser.parse_f0_to_events(f0_array, confidence_array, onset_mask)
     
     viterbi_decoder = ViterbiSmartFingering()
-    fingered_events = viterbi_decoder.decode(raw_events, parser.get_fret_candidates)
+    # [수정됨] 학술적 명칭 정립에 따라 viterbi_decode로 메서드 호출명 변경
+    fingered_events = viterbi_decoder.viterbi_decode(raw_events, parser.get_fret_candidates)
     
     quantizer = RhythmicQuantizer(sr=sr, hop_length=hop_length)
     bpm = quantizer.estimate_bpm_and_grid(y_bassless, y_bass)
