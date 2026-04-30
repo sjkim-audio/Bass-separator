@@ -27,7 +27,8 @@ def run_transcription_pipeline(bass_path: str, bassless_path: Optional[str] = No
     # [수정됨] 학술적 명칭 정립에 따라 viterbi_decode로 메서드 호출명 변경
     fingered_events = viterbi_decoder.viterbi_decode(raw_events, parser.get_fret_candidates)
     
-    quantizer = RhythmicQuantizer(sr=sr, hop_length=hop_length)
+    # 기존: quantizer = RhythmicQuantizer(sr=sr, hop_length=hop_length)
+    quantizer = RhythmicQuantizer(sr=sr, hop_length=hop_length, time_signature=(4, 4))
     bpm = quantizer.estimate_bpm_and_grid(y_bassless, y_bass)
     quantized_events = quantizer.quantize_events(fingered_events)
     
