@@ -206,6 +206,9 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
+# ---------------------------------------------------
+# Custom & Machine Learning specific additions
+# ---------------------------------------------------
 
 # 데이터셋 폴더 무시
 dataset/
@@ -214,16 +217,26 @@ data/
 # 구글 드라이브 마운트 흔적 무시
 drive/
 
-# 대용량 오디오 파일 무시
-.wav
-.mp3
-.flac
-.zip
-.tar.gz
+# 대용량 미디어 및 압축 파일 무시 (와일드카드 추가됨)
+*.wav
+*.mp3
+*.flac
+*.zip
+*.tar.gz
 
-# 학습된 모델 가중치 파일 무시
-.pth
-.pt
-.h5
+# 학습된 모델 가중치 파일 및 로그 무시 (와일드카드 추가됨)
+*.pth
+*.pt
+*.h5
 checkpoints/
 runs/
+wandb/
+
+# OS 생성 시스템 파일 무시 (macOS, Windows 등)
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
