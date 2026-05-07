@@ -30,22 +30,8 @@
 │   └── outputs/          # 최종 추출물 (Bass, MR, JSON, MIDI) 저장소 (런타임 생성)
 ├── docs/                 # 프로젝트 기술 문서 (표준 Taxonomy 적용)
 │   ├── ADR/              # Architecture Decision Records (설계 의사결정 기록)
-│   │   ├── 001-bass-separation-pipeline.md
-│   │   ├── 002-backend-and-infrastructure.md
-│   │   ├── 003-adopt-crepe-and-optimize-vram-for-pitch-tracking.md
-│   │   └── 004-adopt-onset-aware-smart-octave-correction.md
 │   ├── devlogs/          # 알고리즘 실험 및 인프라 트러블슈팅 일지
-│   │   ├── Algorithm_selection_devlog.md
-│   │   ├── Backend_devlog.md
-│   │   ├── pitch_track_tunning_devlog.md
-│   │   └── Transcription_devlog.md
 │   ├── planning/         # 향후 로드맵, 파인튜닝 계획 및 전략적 트레이드오프
-│   │   ├── Dataset_plan.md
-│   │   ├── Fine_tunning_plan.md
-│   │   ├── Roadmap.md
-│   │   ├── Strategic_Tradeoffs_and_Limitations.md
-│   │   ├── Transcription & MLOps Pipeline.md
-│   │   └── Transcription_Algorithm_Roadmap.md
 │   ├── API_SPEC.md       # 프론트엔드-백엔드 비동기 통신 규약
 │   ├── Transcription_Phase7_Quantizer_Architecture.md # 양자화기 아키텍처 설계
 │   └── Viterbi_Math_Model.md # 생체역학적 운지법 상태 전이 수학적 모델링 해설서
