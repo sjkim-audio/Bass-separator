@@ -33,8 +33,6 @@
 │   ├── devlogs/          # 알고리즘 실험 및 인프라 트러블슈팅 일지
 │   ├── planning/         # 향후 로드맵, 파인튜닝 계획 및 전략적 트레이드오프
 │   ├── API_SPEC.md       # 프론트엔드-백엔드 비동기 통신 규약
-│   ├── Transcription_Phase7_Quantizer_Architecture.md # 양자화기 아키텍처 설계
-│   └── Viterbi_Math_Model.md # 생체역학적 운지법 상태 전이 수학적 모델링 해설서
 ├── notebooks/            # EDA, 알고리즘 프로토타이핑 및 R&D 연구 환경
 │   ├── archive/          # 초기 소스 분리 실험 (Demucs, UMX, NMF 등) 아카이브
 │   └── transcription/    # Viterbi HMM, 디바운싱, 양자화 등 전사 알고리즘 튜닝 기록
