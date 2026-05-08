@@ -36,6 +36,8 @@
 ├── notebooks/            # EDA, 알고리즘 프로토타이핑 및 R&D 연구 환경
 │   ├── archive/          # 초기 소스 분리 실험 (Demucs, UMX, NMF 등) 아카이브
 │   └── transcription/    # Viterbi HMM, 디바운싱, 양자화 등 전사 알고리즘 튜닝 기록
+│   └── evaluation/    # 분리 및 채보 모델 성능 평가
+│   └── data_prep/    # 모델 파인튜닝 용 데이터셋 전처리
 ├── src/                  # 코어 비즈니스 로직 및 DSP 라이브러리 (도메인 분리)
 │   ├── core/             # 파이프라인 제어 및 프로세스 격리
 │   │   ├── demucs_runner.py # Demucs 4-Stem 오디오 분리 및 Numpy MR 병합 로직
