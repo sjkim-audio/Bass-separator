@@ -12,7 +12,7 @@ import pretty_midi
 
 from src.models.events import NoteEvent
 
-# [수정 3] 서드파티 라이브러리의 자잘한 경고 메시지 억제 (평가 로그 가독성 확보)
+# 서드파티 라이브러리의 자잘한 경고 메시지 억제 (평가 로그 가독성 확보)
 warnings.filterwarnings('ignore', module='librosa')
 warnings.filterwarnings('ignore', module='pretty_midi')
 
@@ -82,13 +82,45 @@ class TranscriptionEvaluator:
     @staticmethod
     def load_midi_to_mir_eval(midi_path: str):
         pm = pretty_midi.PrettyMIDI(midi_path)
-        intervals, pitches = [], []
+        notes = []
         
         for instrument in pm.instruments:
             if not instrument.is_drum:
-                for note in instrument.notes:
-                    intervals.append([note.start, note.end])
-                    pitches.append(pretty_midi.note_number_to_hz(note.pitch))
+                notes.extend(instrument.notes)
+                
+        # 시작 시간 오름차순, 동일 시작 시간일 경우 높은 피치 우선 정렬
+        notes.sort(key=lambda x: (x.start, -x.pitch))
+
+        intervals = []
+        pitches = []
+        
+        for note in notes:
+            start = note.start
+            end = note.end
+            freq = pretty_midi.note_number_to_hz(note.pitch)
+
+            if not intervals:
+                intervals.append([start, end])
+                pitches.append(freq)
+                continue
+
+            prev_start, prev_end = intervals[-1]
+
+            if start == prev_start:
+                # 동시 타현(화음)의 경우, 최고음만 남기고 하위 음은 무시
+                continue
+            elif start < prev_end:
+                # 레가토(오버랩) 발생 시, 이전 노트의 끝을 현재 노트의 시작 지점으로 잘라냄
+                intervals[-1][1] = start
+                if intervals[-1][1] <= intervals[-1][0]:
+                    intervals.pop()
+                    pitches.pop()
+
+                intervals.append([start, end])
+                pitches.append(freq)
+            else:
+                intervals.append([start, end])
+                pitches.append(freq)
                     
         if not intervals:
             return np.empty((0, 2)), np.empty((0,))
@@ -106,7 +138,6 @@ class TranscriptionEvaluator:
                 
             intervals.append([onset, offset])
             
-            # [수정 2] 피치 해상도 개선: 원본 pitch(Hz)가 있으면 우선 사용
             raw_pitch = getattr(e, 'pitch', None)
             if raw_pitch is not None:
                 pitches.append(raw_pitch)
@@ -117,7 +148,6 @@ class TranscriptionEvaluator:
             return np.empty((0, 2)), np.empty((0,))
         return np.array(intervals), np.array(pitches)
 
-    # [수정 1] onset_tolerance 파라미터 추가
     @staticmethod
     def evaluate(ref_midi_path: str, est_events: List[NoteEvent], test_quantized: bool = False, onset_tolerance: float = 0.1) -> Dict[str, float]:
         ref_intervals, ref_pitches = TranscriptionEvaluator.load_midi_to_mir_eval(ref_midi_path)
@@ -130,7 +160,7 @@ class TranscriptionEvaluator:
 
         scores = mir_eval.transcription.evaluate(
             ref_intervals, ref_pitches, est_intervals, est_pitches,
-            onset_tolerance=onset_tolerance,  # 전달받은 파라미터 적용
+            onset_tolerance=onset_tolerance, 
             pitch_tolerance=50.0, 
             offset_ratio=0.2, 
             offset_min_tolerance=0.05
@@ -145,7 +175,6 @@ class TranscriptionEvaluator:
             "Onset_Pitch_F1": round(scores['F-measure'], 4)
         }
 
-# [수정 1] onset_tolerance 파라미터 릴레이
 async def run_transcription_evaluation(ref_midi_path: str, audio_path: str, is_isolated: bool = False, onset_tolerance: float = 0.1) -> dict:
     print(f"🎵 [Transcription] Processing Audio: {os.path.basename(audio_path)}")
     from src.core.pipeline import run_transcription_pipeline
@@ -164,7 +193,6 @@ async def run_transcription_evaluation(ref_midi_path: str, audio_path: str, is_i
             
         _, _, quantized_events = run_transcription_pipeline(bass_path, bassless_path)
         
-        # 전달받은 파라미터 적용
         metrics_raw = TranscriptionEvaluator.evaluate(ref_midi_path, quantized_events, test_quantized=False, onset_tolerance=onset_tolerance)
         metrics_quantized = TranscriptionEvaluator.evaluate(ref_midi_path, quantized_events, test_quantized=True, onset_tolerance=onset_tolerance)
         
