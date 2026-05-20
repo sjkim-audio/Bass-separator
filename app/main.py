@@ -89,7 +89,7 @@ async def run_pipeline_task(task_id: str, temp_file_path: str):
             start_time_perf = time.perf_counter()
             
             # 2. 추출된 베이스 및 MR 경로를 채보 파이프라인으로 전달
-            ascii_tab, bpm, quantized_events = await loop.run_in_executor(
+            ascii_tab, bpm, fingered_events, quantized_events = await loop.run_in_executor(
                 None, run_transcription_pipeline, bass_path, bassless_path
             )
 
