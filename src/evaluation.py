@@ -4,6 +4,7 @@ import numpy as np
 import librosa
 import scipy.signal
 import traceback
+
 from typing import List, Dict
 
 import museval
@@ -134,7 +135,19 @@ class TranscriptionEvaluator:
                 onset, offset = e.quantized_time, e.quantized_time + e.quantized_duration
             else:
                 onset = e.time
-                offset = onset + (e.duration if e.duration > 0 else 0.05)
+                
+                # [수정] 비정상적인 지속시간(Duration)에 대한 명시적 로깅 방어선 구축
+                if e.duration <= 0:
+                    logging.warning(
+                        f"⚠️ [평가 경고] 비정상적인 지속시간(Duration <= 0) 감지됨 "
+                        f"(Onset: {onset:.3f}s, Note: {e.midi_note}). 파이프라인의 시간 역전 버그일 수 있습니다. "
+                        f"평가를 위해 50ms로 강제 보정합니다."
+                    )
+                    duration = 0.05
+                else:
+                    duration = e.duration
+                    
+                offset = onset + duration
                 
             intervals.append([onset, offset])
             

@@ -24,7 +24,8 @@ async def process_audio(input_path: str, skip_separation: bool):
         print(f"⚡ [Phase 1] Skipping separation. Assuming '{input_path}' is an isolated bass track.")
         bassless_path = None 
 
-    ascii_tab, bpm, _ = run_transcription_pipeline(bass_path, bassless_path)
+    # [수정] 반환값 언패킹 확장
+    ascii_tab, bpm, _, _ = run_transcription_pipeline(bass_path, bassless_path)
     return ascii_tab, bpm
 
 def main():
