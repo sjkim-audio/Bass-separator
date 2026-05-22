@@ -4,6 +4,7 @@ import numpy as np
 import librosa
 import scipy.signal
 import traceback
+import soundfile as sf
 
 from typing import List, Dict
 
@@ -188,7 +189,7 @@ class TranscriptionEvaluator:
             "Onset_Pitch_F1": round(scores['F-measure'], 4)
         }
 
-async def run_transcription_evaluation(ref_midi_path: str, audio_path: str, is_isolated: bool = False, onset_tolerance: float = 0.1) -> dict:
+async def run_transcription_evaluation(ref_midi_path: str, audio_path: str, is_isolated: bool = False, onset_tolerance: float = 0.1, ref_audio_path: str = None) -> dict:
     print(f"🎵 [Transcription] Processing Audio: {os.path.basename(audio_path)}")
     from src.core.pipeline import run_transcription_pipeline
     
@@ -201,12 +202,29 @@ async def run_transcription_evaluation(ref_midi_path: str, audio_path: str, is_i
             print("⏳ 믹스 음원이 감지되었습니다. Demucs 음원 분리를 먼저 수행합니다...")
             temp_out_dir = "outputs/eval_temp"
             bass_path, bassless_path = await separate_and_generate_stems(audio_path, output_dir=temp_out_dir)
+            
+            # [수정] E2E 평가 시 Demucs 위상 지연 보정 로직 추가
+            if ref_audio_path and os.path.exists(ref_audio_path):
+                print("⏱️ 정답 오디오를 기반으로 Demucs 위상 지연(Latency) 보정을 수행합니다...")
+                ref_audio, sr = librosa.load(ref_audio_path, sr=None, mono=True)
+                est_audio, _ = librosa.load(bass_path, sr=sr, mono=True)
+                
+                # 기존 align_audio 함수 재활용
+                _, aligned_est = align_audio(ref_audio, est_audio, sr)
+                
+                aligned_bass_path = os.path.join(temp_out_dir, "bass_aligned.wav")
+                sf.write(aligned_bass_path, aligned_est, sr)
+                bass_path = aligned_bass_path
+            else:
+                print("⚠️ [경고] ref_audio_path가 제공되지 않아 E2E 위상 지연 보정을 건너뜁니다. Onset 점수가 하락할 수 있습니다.")
+                
         else:
             print("⚡ 단일 베이스 트랙(Isolated) 모드입니다. Demucs를 생략하고 즉시 채보를 시작합니다.")
             
-        _, _, quantized_events = run_transcription_pipeline(bass_path, bassless_path)
+        # 1단계에서 수정한 언패킹 코드 적용
+        _, _, fingered_events, quantized_events = run_transcription_pipeline(bass_path, bassless_path)
         
-        metrics_raw = TranscriptionEvaluator.evaluate(ref_midi_path, quantized_events, test_quantized=False, onset_tolerance=onset_tolerance)
+        metrics_raw = TranscriptionEvaluator.evaluate(ref_midi_path, fingered_events, test_quantized=False, onset_tolerance=onset_tolerance)
         metrics_quantized = TranscriptionEvaluator.evaluate(ref_midi_path, quantized_events, test_quantized=True, onset_tolerance=onset_tolerance)
         
         print("-" * 40)
