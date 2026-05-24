@@ -90,43 +90,51 @@ class TranscriptionEvaluator:
             if not instrument.is_drum:
                 notes.extend(instrument.notes)
                 
-        # 시작 시간 오름차순, 동일 시작 시간일 경우 높은 피치 우선 정렬
-        notes.sort(key=lambda x: (x.start, -x.pitch))
+        # [수정] 동시 타현 시 높은 피치가 최종적으로 마스킹(우선순위 획득)하도록 
+        # (시작 시간 오름차순, 피치 오름차순)으로 정렬
+        notes.sort(key=lambda x: (x.start, x.pitch))
 
-        intervals = []
-        pitches = []
+        final_intervals = []
+        final_pitches = []
         
         for note in notes:
             start = note.start
             end = note.end
             freq = pretty_midi.note_number_to_hz(note.pitch)
 
-            if not intervals:
-                intervals.append([start, end])
-                pitches.append(freq)
-                continue
-
-            prev_start, prev_end = intervals[-1]
-
-            if start == prev_start:
-                # 동시 타현(화음)의 경우, 최고음만 남기고 하위 음은 무시
-                continue
-            elif start < prev_end:
-                # 레가토(오버랩) 발생 시, 이전 노트의 끝을 현재 노트의 시작 지점으로 잘라냄
-                intervals[-1][1] = start
-                if intervals[-1][1] <= intervals[-1][0]:
-                    intervals.pop()
-                    pitches.pop()
-
-                intervals.append([start, end])
-                pitches.append(freq)
-            else:
-                intervals.append([start, end])
-                pitches.append(freq)
-                    
-        if not intervals:
+            # 새 노트가 차지하는 구간을 기존 노트들에서 정밀하게 도려냄 (서스테인 보존 로직)
+            new_intervals = []
+            new_pitches = []
+            for (st, ed), p in zip(final_intervals, final_pitches):
+                # 겹치지 않는 구간은 그대로 보존
+                if ed <= start or st >= end:
+                    new_intervals.append([st, ed])
+                    new_pitches.append(p)
+                else:
+                    # 겹치는 구간 발생 시 앞뒤로 분할(Split)하여 서스테인 꼬리를 살림
+                    if st < start:
+                        new_intervals.append([st, start])
+                        new_pitches.append(p)
+                    if ed > end:
+                        new_intervals.append([end, ed])
+                        new_pitches.append(p)
+            
+            final_intervals = new_intervals
+            final_pitches = new_pitches
+            
+            # 새 노트 삽입
+            final_intervals.append([start, end])
+            final_pitches.append(freq)
+            
+        if not final_intervals:
             return np.empty((0, 2)), np.empty((0,))
-        return np.array(intervals), np.array(pitches)
+            
+        # 다시 시간순 정렬 (마스킹 과정에서 순서가 섞였을 수 있으므로 재정렬)
+        sorted_indices = np.argsort([iv[0] for iv in final_intervals])
+        intervals_arr = np.array(final_intervals)[sorted_indices]
+        pitches_arr = np.array(final_pitches)[sorted_indices]
+        
+        return intervals_arr, pitches_arr
 
     @staticmethod
     def _events_to_mir_eval(events: List[NoteEvent], use_quantized: bool = False):
