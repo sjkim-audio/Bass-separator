@@ -61,6 +61,14 @@
 *   **결과:** 100ms의 타이트한 오차 범위 내에서 시스템 딜레이가 채보 점수를 억울하게 깎아내림.
 *   **해결:** 상호상관도(Cross-correlation) 기반의 `align_audio` 함수를 분리 모델 평가(`run_separation_evaluation`)에 삽입하여 시간차를 수학적으로 보정.
 
+### 3.3. Raw vs Quantized 평가 데이터 오염(Data Contamination) 교정
+* **이슈:** 초기 평가 로직에서 양자화기(`RhythmicQuantizer`)를 통과한 데이터를 `test_quantized=False` 옵션만 주어 Raw 평가에 재사용함. 양자화기 내부의 '노트 병합(Merging)' 로직이 이미 적용된 상태로 평가되어, 순수 피치 트래커의 성능이 과대/과소평가되는 가짜 베이스라인(False Baseline) 현상 발견.
+* **해결:** 코어 파이프라인(`src/core/pipeline.py`)의 반환 시그니처를 수정하여 양자화 전 단계의 데이터(`fingered_events`)를 외부로 노출시키고, 평가 모듈이 이를 분리 주입하도록 E2E 데이터 흐름을 교정함.
+
+### 3.4. 파이프라인 결함 은폐(Masking) 방지 로직 구축
+* **이슈:** `TranscriptionEvaluator` 내부에서 노트를 파싱할 때 지속 시간(Duration)이 0 이하일 경우 예외 처리로 50ms를 할당하는 로직이 존재함. 이로 인해 상위 모듈(Parser, Quantizer)에서 꼬리 절단(Truncation) 오류가 발생해도 콘솔에 에러가 노출되지 않고 정상 수치로 채점되는 관측성 결여 문제 발견.
+* **해결:** `duration <= 0` 인 엣지 케이스 발생 시 `logging.warning`을 강제로 출력하도록 수정하여, 잠재적인 파이프라인 버그(시간 역전 등)를 개발자가 즉시 인지하고 추적할 수 있는 안전장치 확립.
+
 ---
 
 ## 4. 시스템 한계점 및 향후 과제 (Limitations & Future Work)
