@@ -188,14 +188,23 @@ class TranscriptionEvaluator:
             offset_min_tolerance=0.05
         )
         
+        # [수정] mir_eval의 실제 스펙에 맞게 키값 재매핑
         return {
-            "Onset_Precision": round(scores['Precision_no_offset'], 4),
-            "Onset_Recall": round(scores['Recall_no_offset'], 4),
-            "Onset_F1": round(scores['F-measure_no_offset'], 4),
-            "Onset_Pitch_Precision": round(scores['Precision'], 4),
-            "Onset_Pitch_Recall": round(scores['Recall'], 4),
-            "Onset_Pitch_F1": round(scores['F-measure'], 4)
+            "Onset_Precision": round(scores.get('Onset_Precision', 0.0), 4),
+            "Onset_Recall": round(scores.get('Onset_Recall', 0.0), 4),
+            "Onset_F1": round(scores.get('Onset_F-measure', 0.0), 4),
+            
+            # 우리가 실제 KPI로 삼아야 할 점수 (Offset 배제)
+            "Onset_Pitch_Precision": round(scores.get('Precision_no_offset', 0.0), 4),
+            "Onset_Pitch_Recall": round(scores.get('Recall_no_offset', 0.0), 4),
+            "Onset_Pitch_F1": round(scores.get('F-measure_no_offset', 0.0), 4),
+            
+            # 참고용 엄격한 지표 (Offset 포함)
+            "Strict_Precision": round(scores.get('Precision', 0.0), 4),
+            "Strict_Recall": round(scores.get('Recall', 0.0), 4),
+            "Strict_F1": round(scores.get('F-measure', 0.0), 4)
         }
+
 
 async def run_transcription_evaluation(ref_midi_path: str, audio_path: str, is_isolated: bool = False, onset_tolerance: float = 0.1, ref_audio_path: str = None) -> dict:
     print(f"🎵 [Transcription] Processing Audio: {os.path.basename(audio_path)}")
