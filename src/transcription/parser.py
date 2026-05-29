@@ -29,11 +29,11 @@ class PitchParser:
         # [공학적 조율]
         # MIN_DURATION_FRAMES: 7 (70ms) 유지. 슬라이드 시 발생하는 띠리링(Fragmentation) 현상 방어선.
         # TOLERANCE_FRAMES: 15.0 (150ms)로 상향. 서스테인 끝자락의 신뢰도 하락 구간을 관성으로 버티게 함.
-        # RETRIGGER_CONF_THRESH: 0.6으로 상향. 동일 피치 연타 시 발생하는 미세한 신뢰도 균열을 좀 더 예민하게 포착.
+        # RETRIGGER_CONF_THRESH: 0.5로 롤백. 동일 피치 연타 시 발생하는 미세한 신뢰도 균열을 좀 더 예민하게 포착.
         MIN_DURATION_FRAMES = 7
         TOLERANCE_FRAMES = 15.0
         LATENCY_COMP_SEC = 0.005
-        RETRIGGER_CONF_THRESH = 0.6 
+        RETRIGGER_CONF_THRESH = 0.5
 
         valid_mask = (f0_array > 0) & (~np.isnan(f0_array))
         midi_array = np.full(len(f0_array), np.nan)
