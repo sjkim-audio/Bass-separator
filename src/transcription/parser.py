@@ -30,10 +30,10 @@ class PitchParser:
         # MIN_DURATION_FRAMES: 7 (70ms) 유지. 슬라이드 시 발생하는 띠리링(Fragmentation) 현상 방어선.
         # TOLERANCE_FRAMES: 15.0 (150ms)로 상향. 서스테인 끝자락의 신뢰도 하락 구간을 관성으로 버티게 함.
         # RETRIGGER_CONF_THRESH: 0.6으로 상향. 동일 피치 연타 시 발생하는 미세한 신뢰도 균열을 좀 더 예민하게 포착.
+        # 기존 설정값 유지 (결함이 있는 RETRIGGER 관련 변수 삭제)
         MIN_DURATION_FRAMES = 7
         TOLERANCE_FRAMES = 15.0
         LATENCY_COMP_SEC = 0.005
-        RETRIGGER_CONF_THRESH = 0.6 
 
         valid_mask = (f0_array > 0) & (~np.isnan(f0_array))
         midi_array = np.full(len(f0_array), np.nan)
@@ -45,7 +45,8 @@ class PitchParser:
             if not np.isnan(midi_val):
                 midi_note = int(midi_val)
                 conf_val = confidence_array[i]
-                blank_counter = 0 
+                
+                # [수정 사항 1] 여기서 blank_counter = 0을 실행하던 것을 삭제
                 
                 if current_note is None:
                     current_note = midi_note
@@ -53,25 +54,24 @@ class PitchParser:
                     
                 # 피치 변경 또는 Onset 감지 시 노트 분할
                 elif (current_note != midi_note) or (current_onset is True):
-                    duration_frames = i - note_start_frame
+                    # [수정 사항 2] 누적된 무음(blank_counter) 구간을 빼고 정확한 종료 시점(end_idx) 도출
+                    end_idx = i - int(blank_counter)
+                    duration_frames = end_idx - note_start_frame
+                    
                     if duration_frames >= MIN_DURATION_FRAMES:
-                        conf_avg = float(np.mean(confidence_array[note_start_frame:i]))
+                        conf_avg = float(np.mean(confidence_array[note_start_frame:end_idx]))
                         duration_sec = float(duration_frames * frame_time)
                         comp_start_time = max(0, (note_start_frame * frame_time) - LATENCY_COMP_SEC)
                         events.append(self._create_event(current_note, comp_start_time, duration_sec, conf_avg))
+                    
                     current_note = midi_note
                     note_start_frame = i
-                    
-                # 신뢰도 급락(Dip) 시 연타로 간주하여 강제 재트리거
-                elif (conf_val < RETRIGGER_CONF_THRESH):
-                    duration_frames = i - note_start_frame
-                    if duration_frames >= MIN_DURATION_FRAMES:
-                        conf_avg = float(np.mean(confidence_array[note_start_frame:i]))
-                        duration_sec = float(duration_frames * frame_time)
-                        comp_start_time = max(0, (note_start_frame * frame_time) - LATENCY_COMP_SEC)
-                        events.append(self._create_event(current_note, comp_start_time, duration_sec, conf_avg))
-                    current_note = None # 다음 프레임에서 새 노트를 시작하도록 초기화
-                    
+                
+                # [수정 사항 3] 노트 증발의 원흉인 RETRIGGER_CONF_THRESH(신뢰도 기반 컷오프) 블록 완전 삭제
+                
+                # [수정 사항 4] 이전 노트 길이에 대한 모든 논리 판정이 끝난 후 안전하게 무음 카운터 리셋
+                blank_counter = 0 
+                
             else:
                 blank_counter += 1
                 if current_note is not None and blank_counter >= TOLERANCE_FRAMES:
