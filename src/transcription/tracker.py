@@ -6,8 +6,8 @@ import torch
 import torchcrepe
 import gc # 가비지 컬렉터 추가
 
-
-def clean_octave_errors_smart(f0_array, onset_mask, window_size=7, onset_tolerance=4):
+# window_size 파라미터 기본값을 31로 변경
+def clean_octave_errors_smart(f0_array, onset_mask, window_size=31, onset_tolerance=4):
     f0_clean = f0_array.copy()
     mask = (f0_clean > 0) & (~np.isnan(f0_clean))
     if np.sum(mask) == 0:
