@@ -131,6 +131,9 @@ E |---------------------------------------------3--|---------3-----4-----3------
 | **설정 오류로 인한 대규모 노트 증발 (Massive Note Omission)** | 5현 베이스(B0=30.8Hz) 지원을 위해 HPF를 25Hz, `fmin`을 33Hz로 하향했으나, 모델 최저 학습 한계점(C1=32.7Hz) 이하의 음수 인덱스 슬라이싱 버그가 확률 텐서를 날려버리고 초저주파 럼블이 온셋을 마스킹함. | HPF 컷오프를 35Hz, `fmin`을 40Hz의 **안정적 초기값(Golden State)**으로 롤백. 가비지 노이즈로 인한 예측 신뢰도 하락과 파서의 어택 병합(노트 증발) 현상 완벽 해결. |
 | **단일 트랙 템포 추출 실패 (Tempo Fallback Failure)** | 믹스가 아닌 단일 베이스 트랙(Isolated) 입력 시, 템포 추출을 위한 `bassless_path` 변수에 베이스 소스가 그대로 주입되면서 고주파 온셋 에너지가 높게 측정되어 베이스 전용 BPM 추적(Fallback)이 차단됨. | 단일 트랙 처리 시 `bassless_path`에 명시적으로 `None`을 주입하도록 파이프라인 컨트롤러를 수정하여, 저역대 전용(`fmax=400`) BPM 추적기가 정상 가동되도록 강제함. |
 | **파서 내 가변 상태 부작용 (Mutable State Side Effect)** | 파서의 기호 영역 보정 함수(`_post_process_garbage_pitch`)가 입력받은 이벤트 리스트를 In-place로 수정하여, Call-by-Assignment 특성에 의한 원본 데이터 오염 발생. | 원본 리스트를 얕은 복사(Shallow Copy)하고 `NoteEvent.update()` 메서드를 활용하여 객체를 교체(Immutable Replacement)하는 방식으로 순수 함수(Pure Function) 구조 보장. |
+| **Duration Bloating & 쉼표 증발 오류** | `PitchParser`에서 무음 구간(`blank_counter`)을 이전 노트를 닫기 전에 초기화하여, 쉼표가 전부 앞선 음표의 길이(Duration)로 편입되어버림. | 1) `blank_counter = 0` 초기화 시점을 노트 Finalize 판정 이후로 지연시킴. 2) 노트 종료 시 `end_idx = i - blank_counter` 로 정확한 물리적 오프셋을 역산하도록 식 교정. |
+| **신뢰도 컷오프에 의한 대규모 노트 증발 (Massive Note Omission)** | 동일 피치 연타를 잡기 위해 도입한 `RETRIGGER_CONF_THRESH` 로직이, 서스테인 중 신뢰도가 미세하게 하락하는 프레임을 계속해서 잘라내어 노트를 소멸시킴. | 신뢰도 기반 강제 컷오프 로직 전면 삭제. 억지 분절을 포기하고 Onset Mask의 정상 탐지 능력과 Viterbi/Quantizer의 하위 처리에 맡겨 데이터 무결성을 회복함. |
+| **옥타브 보정 필터 무력화 (Assimilation)** | 옥타브 트렌드를 구하는 롤링 미디언 윈도우 사이즈가 `7`(70ms)로 너무 짧아, 40ms 짜리 에러 점프만 발생해도 트렌드 자체가 에러값으로 동화됨. | `clean_octave_errors_smart`의 `window_size`를 `31`(약 310ms)로 대폭 확장하여, 일시적인 에러 점프가 트렌드를 오염시키지 못하도록 강건성(Robustness) 확보. |
 ---
 
 ## 5. Future Works (Roadmap)
