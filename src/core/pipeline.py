@@ -8,7 +8,10 @@ from src.transcription.fingering import ViterbiSmartFingering
 from src.transcription.quantization import RhythmicQuantizer
 from src.renderers.tab_renderer import TabRenderer
 
-def run_transcription_pipeline(bass_path: str, bassless_path: Optional[str] = None) -> Tuple[str, float, List[NoteEvent]]:
+# src/core/pipeline.py
+# (상단 import 부분 생략)
+
+def run_transcription_pipeline(bass_path: str, bassless_path: Optional[str] = None) -> Tuple[str, float, List[NoteEvent], List[NoteEvent]]:
     sr = 16000
     hop_length = 160
     
@@ -24,13 +27,13 @@ def run_transcription_pipeline(bass_path: str, bassless_path: Optional[str] = No
     raw_events = parser.parse_f0_to_events(f0_array, confidence_array, onset_mask)
     
     viterbi_decoder = ViterbiSmartFingering()
-    # [수정됨] 학술적 명칭 정립에 따라 viterbi_decode로 메서드 호출명 변경
     fingered_events = viterbi_decoder.viterbi_decode(raw_events, parser.get_fret_candidates)
     
-    quantizer = RhythmicQuantizer(sr=sr, hop_length=hop_length)
+    quantizer = RhythmicQuantizer(sr=sr, hop_length=hop_length, time_signature=(4, 4))
     bpm = quantizer.estimate_bpm_and_grid(y_bassless, y_bass)
     quantized_events = quantizer.quantize_events(fingered_events)
     
     ascii_tab = TabRenderer.render_tab(quantized_events, bpm)
     
-    return ascii_tab, bpm, quantized_events
+    # [수정] fingered_events(Raw 데이터)를 추가로 반환
+    return ascii_tab, bpm, fingered_events, quantized_events

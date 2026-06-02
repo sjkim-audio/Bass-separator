@@ -30,27 +30,13 @@
 │   └── outputs/          # 최종 추출물 (Bass, MR, JSON, MIDI) 저장소 (런타임 생성)
 ├── docs/                 # 프로젝트 기술 문서 (표준 Taxonomy 적용)
 │   ├── ADR/              # Architecture Decision Records (설계 의사결정 기록)
-│   │   ├── 001-bass-separation-pipeline.md
-│   │   ├── 002-backend-and-infrastructure.md
-│   │   ├── 003-adopt-crepe-and-optimize-vram-for-pitch-tracking.md
-│   │   └── 004-adopt-onset-aware-smart-octave-correction.md
 │   ├── devlogs/          # 알고리즘 실험 및 인프라 트러블슈팅 일지
-│   │   ├── Algorithm_selection_devlog.md
-│   │   ├── Backend_devlog.md
-│   │   ├── pitch_track_tunning_devlog.md
-│   │   └── Transcription_devlog.md
 │   ├── planning/         # 향후 로드맵, 파인튜닝 계획 및 전략적 트레이드오프
-│   │   ├── Dataset_plan.md
-│   │   ├── Fine_tunning_plan.md
-│   │   ├── Roadmap.md
-│   │   ├── Strategic_Tradeoffs_and_Limitations.md
-│   │   ├── Transcription & MLOps Pipeline.md
-│   │   └── Transcription_Algorithm_Roadmap.md
-│   ├── API_SPEC.md       # 프론트엔드-백엔드 비동기 통신 규약
-│   ├── Transcription_Phase7_Quantizer_Architecture.md # 양자화기 아키텍처 설계
-│   └── Viterbi_Math_Model.md # 생체역학적 운지법 상태 전이 수학적 모델링 해설서
+│   └── API_SPEC.md       # 프론트엔드-백엔드 비동기 통신 규약
 ├── notebooks/            # EDA, 알고리즘 프로토타이핑 및 R&D 연구 환경
-│   ├── archive/          # 초기 소스 분리 실험 (Demucs, UMX, NMF 등) 아카이브
+│   ├── data_prep/        # 모델 파인튜닝 및 평가를 위한 데이터셋 전처리 (Slakh2100)
+│   ├── evaluation/       # 음원 분리 및 채보 모델 성능 정량 평가 및 에러 시각화
+│   ├── separation/       # 음원 분리 모델 실험 (Demucs, OpenUnmix 등)
 │   └── transcription/    # Viterbi HMM, 디바운싱, 양자화 등 전사 알고리즘 튜닝 기록
 ├── src/                  # 코어 비즈니스 로직 및 DSP 라이브러리 (도메인 분리)
 │   ├── core/             # 파이프라인 제어 및 프로세스 격리

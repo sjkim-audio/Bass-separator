@@ -70,13 +70,22 @@ def save_experiment_results(metrics, exp_id, base_dir="/content/drive/MyDrive/Ba
         else:
             serializable_metrics[key] = value
             
-    # 중앙값(Median) 요약 데이터도 JSON에 함께 기록
-    summary = {
-        "SDR_median": float(np.nanmedian(metrics.get('SDR', [0]))),
-        "SIR_median": float(np.nanmedian(metrics.get('SIR', [0]))),
-        "SAR_median": float(np.nanmedian(metrics.get('SAR', [0])))
-    }
+    # [수정] 평가 모드에 따른 동적 Summary 생성
+    summary = {}
+    if 'SDR' in metrics:
+        summary = {
+            "SDR_median": float(np.nanmedian(metrics.get('SDR', [0]))),
+            "SIR_median": float(np.nanmedian(metrics.get('SIR', [0]))),
+            "SAR_median": float(np.nanmedian(metrics.get('SAR', [0])))
+        }
+    elif 'Onset_Pitch_F1' in metrics:
+        summary = {
+            "Onset_Pitch_F1": metrics.get('Onset_Pitch_F1', 0.0),
+            "Strict_F1": metrics.get('Strict_F1', 0.0)
+        }
+        
     serializable_metrics["summary_statistics"] = summary
+
     
     # 3. JSON 파일로 저장 (.csv 대신 구조적 데이터 관리에 용이)
     json_path = os.path.join(results_dir, f"{exp_id}_metrics.json")
