@@ -1,0 +1,79 @@
+# src/run_batch_eval.py
+import os
+import argparse
+import asyncio
+import numpy as np
+import json
+from pathlib import Path
+from tqdm.auto import tqdm
+from evaluation import run_transcription_evaluation
+
+async def run_batch(test_dir: str, is_isolated: bool, onset_tolerance: float, exp_id: str):
+    base_path = Path(test_dir)
+    track_dirs = [d for d in base_path.iterdir() if d.is_dir() and d.name.startswith("Track")]
+    
+    print(f"🔍 총 {len(track_dirs)}곡에 대한 대규모 벤치마크를 시작합니다. (Isolated: {is_isolated})")
+    
+    results = []
+    f1_scores = []
+    
+    for track_dir in tqdm(track_dirs, desc="Evaluating Tracks"):
+        ref_midi = str(track_dir / "bass_gt.mid")
+        est_audio = str(track_dir / "bass_gt.wav") if is_isolated else str(track_dir / "mix.wav")
+        ref_audio = str(track_dir / "bass_gt.wav")
+        
+        if not os.path.exists(ref_midi) or not os.path.exists(est_audio):
+            continue
+            
+        try:
+            # E2E 믹스 모드일 경우 위상 지연 보정을 위해 ref_audio_path 전달
+            metrics = await run_transcription_evaluation(
+                ref_midi_path=ref_midi, 
+                audio_path=est_audio, 
+                is_isolated=is_isolated, 
+                onset_tolerance=onset_tolerance,
+                ref_audio_path=ref_audio if not is_isolated else None
+            )
+            
+            if metrics and 'Onset_Pitch_F1' in metrics:
+                f1_scores.append(metrics['Onset_Pitch_F1'])
+                results.append({"track": track_dir.name, "metrics": metrics})
+                
+        except Exception as e:
+            print(f"⚠️ [{track_dir.name}] 평가 중 에러 발생: {e}")
+            continue
+
+    if not f1_scores:
+        print("❌ 유효한 평가 결과가 없습니다.")
+        return
+
+    # 평균 점수 산출
+    mean_f1 = float(np.mean(f1_scores))
+    median_f1 = float(np.median(f1_scores))
+    
+    print("\n" + "="*50)
+    print(f"🎯 벤치마크 최종 결과 ({len(f1_scores)}곡)")
+    print("="*50)
+    print(f"✅ Mean Onset-Pitch F1   : {mean_f1 * 100:.2f}%")
+    print(f"✅ Median Onset-Pitch F1 : {median_f1 * 100:.2f}%")
+    print("="*50)
+    
+    # 결과 JSON 저장
+    os.makedirs("results", exist_ok=True)
+    out_json = f"results/{exp_id}_batch_results.json"
+    with open(out_json, "w", encoding="utf-8") as f:
+        json.dump({
+            "summary": {"mean_f1": mean_f1, "median_f1": median_f1, "total_tracks": len(f1_scores)},
+            "details": results
+        }, f, indent=4)
+    print(f"💾 상세 결과 저장 완료: {out_json}")
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--test_dir", type=str, required=True, help="전처리된 test 폴더 경로")
+    parser.add_argument("--isolated", action="store_true", help="단일 트랙(DI) 모드 여부")
+    parser.add_argument("--tolerance", type=float, default=0.1, help="Onset 허용 오차")
+    parser.add_argument("--exp_id", type=str, default="Baseline", help="실험 ID")
+    args = parser.parse_args()
+    
+    asyncio.run(run_batch(args.test_dir, args.isolated, args.tolerance, args.exp_id))
