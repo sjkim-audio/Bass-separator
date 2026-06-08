@@ -6,7 +6,7 @@ import numpy as np
 import json
 from pathlib import Path
 from tqdm.auto import tqdm
-from evaluation import run_transcription_evaluation
+from src.evaluation.evaluator import run_transcription_evaluation
 
 async def run_batch(test_dir: str, is_isolated: bool, onset_tolerance: float, exp_id: str):
     base_path = Path(test_dir)
