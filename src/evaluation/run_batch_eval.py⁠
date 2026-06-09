@@ -4,6 +4,8 @@ import argparse
 import asyncio
 import numpy as np
 import json
+import gc      # [Fix] 가비지 컬렉터 추가
+import torch   # [Fix] GPU 메모리 제어용 추가
 from pathlib import Path
 from tqdm.auto import tqdm
 from src.evaluation.evaluator import run_transcription_evaluation
@@ -42,6 +44,12 @@ async def run_batch(test_dir: str, is_isolated: bool, onset_tolerance: float, ex
         except Exception as e:
             print(f"⚠️ [{track_dir.name}] 평가 중 에러 발생: {e}")
             continue
+       finally:
+            # [Fix] 트랙 1개 처리 완료마다 명시적으로 CPU/GPU 메모리 강제 회수
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.ipc_collect()
 
     if not f1_scores:
         print("❌ 유효한 평가 결과가 없습니다.")
