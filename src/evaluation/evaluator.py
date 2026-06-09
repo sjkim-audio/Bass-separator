@@ -6,6 +6,7 @@ import librosa
 import scipy.signal
 import traceback
 import soundfile as sf
+import asyncio
 
 from typing import List, Dict
 
@@ -239,8 +240,11 @@ async def run_transcription_evaluation(ref_midi_path: str, audio_path: str, is_i
         else:
             print("⚡ 단일 베이스 트랙(Isolated) 모드입니다. Demucs를 생략하고 즉시 채보를 시작합니다.")
             
-        # 1단계에서 수정한 언패킹 코드 적용
-        _, _, fingered_events, quantized_events = run_transcription_pipeline(bass_path, bassless_path)
+        # [Fix] 동기 파이프라인을 외부 스레드풀(Threadpool)로 오프로딩하여 Event Loop 마비 방어
+        loop = asyncio.get_running_loop()
+        _, _, fingered_events, quantized_events = await loop.run_in_executor(
+            None, run_transcription_pipeline, bass_path, bassless_path
+        )
         
         metrics_raw = TranscriptionEvaluator.evaluate(ref_midi_path, fingered_events, test_quantized=False, onset_tolerance=onset_tolerance)
         metrics_quantized = TranscriptionEvaluator.evaluate(ref_midi_path, quantized_events, test_quantized=True, onset_tolerance=onset_tolerance)
