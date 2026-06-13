@@ -2,9 +2,9 @@
 import argparse
 import os
 import asyncio
-from evaluation import run_separation_evaluation, run_transcription_evaluation
-from visualization import visualize_metrics
-from utils import save_experiment_results
+from src.evaluation.evaluator import run_separation_evaluation, run_transcription_evaluation
+from src.evaluation.visualization import visualize_metrics
+from src.utils import save_experiment_results
 
 def main():
     parser = argparse.ArgumentParser(description="베이스 채보 파이프라인 다목적 성능 평가 CLI")
