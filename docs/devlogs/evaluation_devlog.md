@@ -77,6 +77,10 @@
 * **이슈:** E2E 채보 평가(`trans` 모드)에서 믹스 음원을 Demucs로 분리할 경우, CNN 모델 내부의 연산 패딩으로 인해 수십 ms의 위상 지연(Phase Shift)이 발생함. 이 지연이 보정되지 않은 채 파이프라인에 입력되어, 피치 트래커가 음표를 정확히 추출했음에도 불구하고 정답(GT) 대비 Onset 타임스탬프가 고정적으로 밀려 Onset F1-Score가 부당하게 하락하는 치명적 오차 원인 발견.
 * **해결:** CLI 스크립트(`run_eval.py`)에 E2E 평가 전용 정답 오디오 참조 인자(`--ref_audio`)를 확장함. 평가 프레임워크(`run_transcription_evaluation`) 내부에서 채보 알고리즘 시작 직전에, 분리된 베이스 오디오와 정답 오디오 간의 상호상관도(Cross-correlation)를 계산해 위상 지연을 동기화(Alignment)하는 전처리 단계를 삽입하여 E2E 평가의 공정성을 확보함.
 
+### 3.7. 대규모 배치 평가(151 트랙) 안정성 강화
+* **이슈:** Slakh2100 전수 평가 시 1) NameError(logging)에 의한 돌발 종료, 2) Async Event Loop 마비, 3) VRAM 파편화 누적으로 인한 OOM 크래시가 연쇄적으로 발생할 위험성 존재.
+* **해결:** evaluator.py 내 동기 파이프라인 호출을 loop.run_in_executor로 오프로딩하고, run_batch_eval.py의 단위 루프 finally 블록에 torch.cuda.ipc_collect()와 gc.collect()를 강제 삽입하여 메모리 누수를 원천 차단함.
+
 ---
 
 ## 4. 시스템 한계점 및 향후 과제 (Limitations & Future Work)
