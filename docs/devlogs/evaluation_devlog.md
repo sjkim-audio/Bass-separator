@@ -77,9 +77,22 @@
 * **이슈:** E2E 채보 평가(`trans` 모드)에서 믹스 음원을 Demucs로 분리할 경우, CNN 모델 내부의 연산 패딩으로 인해 수십 ms의 위상 지연(Phase Shift)이 발생함. 이 지연이 보정되지 않은 채 파이프라인에 입력되어, 피치 트래커가 음표를 정확히 추출했음에도 불구하고 정답(GT) 대비 Onset 타임스탬프가 고정적으로 밀려 Onset F1-Score가 부당하게 하락하는 치명적 오차 원인 발견.
 * **해결:** CLI 스크립트(`run_eval.py`)에 E2E 평가 전용 정답 오디오 참조 인자(`--ref_audio`)를 확장함. 평가 프레임워크(`run_transcription_evaluation`) 내부에서 채보 알고리즘 시작 직전에, 분리된 베이스 오디오와 정답 오디오 간의 상호상관도(Cross-correlation)를 계산해 위상 지연을 동기화(Alignment)하는 전처리 단계를 삽입하여 E2E 평가의 공정성을 확보함.
 
-### 3.7. 대규모 배치 평가(151 트랙) 안정성 강화
-* **이슈:** Slakh2100 전수 평가 시 1) NameError(logging)에 의한 돌발 종료, 2) Async Event Loop 마비, 3) VRAM 파편화 누적으로 인한 OOM 크래시가 연쇄적으로 발생할 위험성 존재.
-* **해결:** evaluator.py 내 동기 파이프라인 호출을 loop.run_in_executor로 오프로딩하고, run_batch_eval.py의 단위 루프 finally 블록에 torch.cuda.ipc_collect()와 gc.collect()를 강제 삽입하여 메모리 누수를 원천 차단함.
+### 3.7. 대규모 배치 평가(151 트랙) 안정성 및 데이터 무결성 강화
+
+Phase 8 진입 및 Slakh2100 전수 평가(151 트랙)를 앞두고, 장시간 가동 시 발생할 수 있는 시스템 크래시 및 데이터 유실 위험을 원천 차단하기 위해 평가 프레임워크(`evaluator.py`, `run_batch_eval.py`)의 아키텍처를 전면 교정함.
+
+* **이슈 1 (시스템 크래시 및 VRAM 파편화):** * `evaluator.py` 내 방어 로직 중 `NameError(logging)`에 의한 돌발 종료 위험.
+  * 비동기 함수 내부에 극단적 CPU-bound 파이프라인이 동기적으로 호출되어 Async Event Loop가 완전히 마비되는 병목 발생.
+  * 반복적인 배치 루프 특성상 파이썬 가비지 컬렉션 지연으로 인해 VRAM 파편화가 누적되어 30~40트랙 부근에서 필연적인 OOM(Out of Memory) 크래시 발생.
+
+* **이슈 2 (데이터 교차 오염 및 증발 위험):**
+  * `mix.wav` E2E 평가 시 임시 폴더(`outputs/eval_temp`)를 덮어쓰는 구조로 인해, 특정 트랙에서 Demucs가 조용히 실패(Silent Failure)할 경우 이전 트랙에서 분리해 둔 베이스 오디오를 현재 트랙의 결과물로 오인하는 치명적인 교차 오염(Cross-contamination) 발생.
+  * 151곡 평가가 모두 끝난 종료 시점에 단 한 번 `json.dump`를 수행하도록 설계되어, 런타임 중간에 크래시 발생 시 4~5시간 분량의 벤치마크 데이터가 허공으로 증발할 위험성 존재.
+
+* **해결 및 아키텍처 교정:**
+  * **Event Loop 마비 및 OOM 방어:** `evaluator.py` 내 동기 파이프라인 호출을 `loop.run_in_executor`를 통해 외부 스레드풀로 오프로딩함. 또한 `run_batch_eval.py`의 단위 루프 `finally` 블록에 `torch.cuda.ipc_collect()`와 `gc.collect()`를 강제 삽입하여 트랙 1개 처리 완료마다 CPU/GPU 메모리 누수를 원천 차단함.
+  * **상태 영속성 보장 (Incremental Save):** 루프 내에서 트랙 하나가 종료될 때마다 즉시 중간 결과를 JSON에 덮어쓰는 누적 저장 로직을 도입하여 데이터 증발을 방어함.
+  * **디스크 I/O 샌드박싱:** `finally` 블록에 `shutil.rmtree("outputs/eval_temp", ignore_errors=True)`를 추가하여 평가가 끝난 임시 디렉토리를 물리적으로 통삭제함으로써 이전 트랙의 잔여 파일 개입을 차단함.
 
 ---
 
