@@ -3,8 +3,10 @@ demucs
 librosa
 museval
 pretty_midi
+mido
 soundfile
 pydub
+pedalboard
 
 # Math & Data
 numpy
@@ -17,6 +19,11 @@ torchcrepe
 # Visualization
 matplotlib
 
-# API server
+# API Server & Backend
 fastapi
 uvicorn
+python-multipart
+
+# Frontend & Networking
+streamlit
+requests
