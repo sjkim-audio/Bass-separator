@@ -42,6 +42,11 @@
 │   ├── core/             # 파이프라인 제어 및 프로세스 격리
 │   │   ├── demucs_runner.py # Demucs 4-Stem 오디오 분리 및 Numpy MR 병합 로직
 │   │   └── pipeline.py      # E2E 전사 파이프라인 (분리 -> 트래킹 -> 디코딩 -> 양자화)
+│   ├── evaluation/       # 벤치마크 및 다중 도메인 성능 정량 평가 프레임워크
+│   │   ├── evaluator.py     # BSSEval(분리) 및 mir_eval(채보) 정량 평가 코어 로직
+│   │   ├── run_batch_eval.py# 대규모 배치 평가(Slakh2100) 및 OOM 방어 스크립트
+│   │   ├── run_eval.py      # 단일/믹스 다중 도메인 평가 파이프라인 실행 CLI
+│   │   └── visualization.py # 멜 스펙트로그램, 피아노 롤 등 평가 지표 시각화 모듈
 │   ├── models/           # 데이터 스키마 및 도메인 객체
 │   │   └── events.py        # 파이프라인 전반을 관통하는 불변 객체(NoteEvent) 모델
 │   ├── renderers/        # 최종 결과물 포맷팅 로직
@@ -55,11 +60,8 @@
 │   │   └── tracker.py       # CREPE 기반 피치 트래킹(Pitch Detection) 및 옥타브 보정
 │   ├── augmentation.py   # 파인튜닝용 오디오 데이터 합성 및 증강 모듈
 │   ├── env_setup.py      # 의존성 및 환경 구축 스크립트
-│   ├── evaluation.py     # 분리(SDR) 및 채보(mir_eval F1-Score) 정량 평가 모듈
 │   ├── main.py           # CLI 환경 전용 단일 파이프라인 실행 래퍼 스크립트
-│   ├── run_eval.py       # 다중 도메인 평가 파이프라인 일괄 실행 CLI
-│   ├── utils.py          # 공통 유틸리티 및 실험 결과 I/O 함수
-│   └── visualization.py  # 멜 스펙트로그램 및 피아노 롤 시각화 모듈
+│   └── utils.py          # 공통 유틸리티 및 실험 결과 I/O 함수
 ├── app.py                # Streamlit 기반 프론트엔드 웹 데모 (MVP 시각화 및 다운로드)
 ├── docker-compose.yml    # API 서버 컨테이너 오케스트레이션
 ├── Dockerfile            # API 서버 이미지 빌드 명세서
