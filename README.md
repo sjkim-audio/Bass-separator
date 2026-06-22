@@ -18,9 +18,66 @@
 5. **Note Debouncing:** 상태 머신(State Machine) 기반 알고리즘으로 미세한 피치 흔들림과 결측치(NaN)에 의한 가짜 속주(False Polyphony) 현상 제거.
 6. **FastAPI Backend:** 오디오 분리 및 추론을 위한 Docker 기반 API 서버 지원.
 
-## 📂 Repository Structure
-```text
+---
 
+## 🚀 Quick Start (설치 및 실행)
+
+본 프로젝트는 오디오 처리 라이브러리(C++)의 OS 의존성 및 DLL 충돌을 방지하기 위해 **Docker 기반 환경**을 강력히 권장합니다.
+
+### 1. API 서버 구동 (Docker)
+```bash
+git clone [https://github.com/sjkim-audio/Bass-separator.git](https://github.com/sjkim-audio/Bass-separator.git)
+cd Bass-separator
+
+# FastAPI 컨테이너 빌드 및 백그라운드 실행
+docker-compose up -d --build
+```
+* **API Swagger UI:** `http://localhost:8000/docs` (여기서 직접 I/O 테스트 가능)
+
+### 2. Web UI 구동 (Streamlit)
+로컬 파이썬 환경에서 프론트엔드 대시보드를 실행하여 시각적으로 결과물을 확인합니다.
+```bash
+pip install -r requirements.txt
+streamlit run app.py
+```
+* **웹 데모 접속:** `http://localhost:8501`
+
+---
+
+## 📊 Benchmark Evaluation (성능 평가)
+
+모델 고도화 및 파라미터 튜닝 시 성능 하락 여부(Regression)를 방어하기 위한 정량 평가 CLI 프레임워크입니다. (Slakh2100 데이터셋 기준)
+
+```bash
+# 1. Colab / 로컬 환경 필수 의존성 셋업
+python -c "from src.env_setup import init_colab_env; init_colab_env()"
+
+# 2. 대규모 배치 평가 가동 (E2E 모드, 위상 지연 자동 보정 포함)
+python -m src.evaluation.run_batch_eval \
+    --test_dir ./slakh_processed/test \
+    --exp_id Phase8_Baseline
+```
+*평가 결과는 `results/` 디렉토리 내 JSON 파일로 자동 누적 저장됩니다.*
+
+---
+
+## 🧠 Core Pipeline Architecture (데이터 흐름도)
+
+단일 API 호출 시 내부적으로 실행되는 불변 데이터(Immutable Data) 파이프라인의 핵심 흐름입니다.
+
+1. **Audio Input:** 믹스 오디오 업로드 (최대 50MB 제한, 비동기 큐잉).
+2. **Source Separation:** `Demucs` 4-Stem 분리 $\rightarrow$ Bass 트랙 추출 및 Bassless MR(백킹 트랙) 병합.
+3. **Pitch Tracking:** `CREPE` 모델 추론 (30초 Chunking, $f_{min}=40Hz \sim f_{max}=500Hz$ 도메인 최적화).
+4. **Symbolic Culling:** 플럭(Pluck) 노이즈 등 60ms 이하의 가짜 피치를 기호 영역에서 강제 병합 및 필터링.
+5. **Smart Fingering:** `Viterbi HMM` 알고리즘을 통한 생체역학적 최적 운지법(String/Fret) 전역 디코딩.
+6. **Rhythmic Quantization:** Bassless MR 기준 글로벌 템포 맵(BPM) 추출 $\rightarrow$ 오차 제곱합(SSE) 기반 3연음/16분음표 동적 격자 스냅.
+7. **Rendering & Export:** ASCII 형태의 퀀타이즈 타브 악보 및 물리적 원본 시간이 보존된(Unquantized) `.mid` 파일 병렬 추출.
+
+---
+
+## 📂 Repository Structure
+
+```text
 .
 ├── app/                  # FastAPI 기반 REST API 백엔드 서버
 │   ├── main.py           # API 라우팅 (비동기 폴링, 상태 영속화, 정적 파일 서빙)
@@ -68,3 +125,4 @@
 ├── requirements.txt      # Python 패키지 의존성
 ├── LICENSE               # 오픈소스 라이선스
 └── README.md             # 프로젝트 개요 및 가이드 (현재 파일)
+```
