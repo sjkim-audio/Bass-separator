@@ -89,6 +89,7 @@
 | **Massive Note Omission (DSP Mismatch)** | 5현 베이스 지원을 위해 HPF를 25Hz, `fmin`을 33Hz로 하향했으나, 모델의 최소 한계점(32.7Hz) 이하로 인한 음수 인덱스 슬라이싱 버그가 발생하고 초저역대 럼블 노이즈가 온셋 마스크를 붕괴시킴. | HPF 컷오프를 35Hz, `fmin`을 40Hz의 **Golden State**로 롤백하여, 노이즈로 인한 파서의 과도한 분절 및 노트 삭제 현상 원천 차단. |
 | **Isolated Track Tempo Fallback Failure** | 단일 베이스 트랙 입력 시, 템포 추출을 위한 MR 트랙 변수에 베이스 소스가 그대로 주입되어 고주파 온셋 에너지가 강하게 잡힘에 따라 베이스 전용 BPM 추적(Fallback)이 차단됨. | 단일 트랙 처리 시 `bassless_path`에 명시적으로 `None`을 주입하도록 파이프라인 호출부를 수정하여 베이스 전용 대역폭(`fmax=400`) 추적 활성화. |
 | **Race Condition in File Cleanup** | 다중 클라이언트 접속 시, 공유 폴더의 임시 파일을 삭제하는 기존 로직이 다른 스레드가 점유 중인 파일을 건드릴(Permission/File Not Found) 위험 존재. | 각 태스크별 고유 `task_id` 기반의 **샌드박스 환경**을 구축하고, 파이프라인 종료 시 해당 디렉토리의 가비지 폴더만 타겟팅하여 통삭제(`shutil.rmtree`)함으로써 스레드 안전성 확보. |
+| **API Response Data Drop (URL 누락)** | `API_SPEC.md`에는 다운로드 URL 반환이 명시되어 있고 `main.py`에서도 데이터를 주입했으나, Pydantic 모델(`TranscriptionMetadata`)에 해당 필드가 선언되지 않아 직렬화 과정에서 엄격한 필터링 규칙에 의해 영구 증발함. | DTO 스키마에 `bass_audio_url`, `bassless_audio_url`, `midi_url`을 `Optional[str]`로 명시적으로 추가하여 데이터 컨트랙트 무결성을 복원함. |
 
 ---
 
