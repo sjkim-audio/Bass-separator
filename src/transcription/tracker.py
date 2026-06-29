@@ -24,7 +24,8 @@ def clean_octave_errors_smart(f0_array, onset_mask, window_size=31, onset_tolera
         if np.isnan(trend[i]): continue
         diff = midi_notes[i] - trend[i]
         
-        is_octave_jump = (10 <= diff <= 14) or (22 <= diff <= 26) or (-14 <= diff <= -10)
+        # [Fix] -2 옥타브(-26 ~ -22) 하강 복구 조건 누락 추가
+        is_octave_jump = (10 <= diff <= 14) or (22 <= diff <= 26) or (-14 <= diff <= -10) or (-26 <= diff <= -22)
         
         if is_octave_jump:
             start_idx = max(0, i - onset_tolerance)
@@ -38,9 +39,12 @@ def clean_octave_errors_smart(f0_array, onset_mask, window_size=31, onset_tolera
                     midi_notes[i] -= 24
                 elif -14 <= diff <= -10:
                     midi_notes[i] += 12
+                elif -26 <= diff <= -22: # [Fix] -2 옥타브 복원 분기 추가
+                    midi_notes[i] += 24
 
     f0_clean[mask] = librosa.midi_to_hz(midi_notes[mask])
     return f0_clean
+
 
 # 🔴 [롤백] fmin을 다시 40으로 복구
 def get_f0_crepe_robust(audio, sr, hop_length=160, fmin=40, fmax=500, chunk_duration=30, model_capacity='tiny', batch_size=512):
