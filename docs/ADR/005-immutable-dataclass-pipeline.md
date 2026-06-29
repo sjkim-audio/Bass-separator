@@ -46,3 +46,4 @@
 * **Negative & Limitations:**
   * 상태를 갱신할 때마다(`update()` 호출 시) 기존 객체는 가비지 컬렉터(GC) 대상이 되고 새로운 `NoteEvent` 객체가 할당되므로, 이전 구조 대비 객체 생성 오버헤드(Instantiation Overhead)가 증가한다.
   * **현재 판단:** 본 파이프라인의 전체 소요 시간 중 대부분은 딥러닝(CREPE, Demucs) 추론이 차지하고 있다. 파이썬 레벨의 데이터 클래스 재생성 오버헤드는 전체 Latency에 미치는 영향이 미미한 수준으로 관찰되어, 현재의 시스템 안정성을 우선하는 결정으로 수용한다. 단, 향후 극단적인 고속 처리가 요구될 경우 메모리 프로파일링을 통한 재검토가 필요할 수 있다.
+* **Anti-Pattern Resolution:** 초기 프로토타입에서 음향 데이터 변환과 View 렌더링을 동시에 수행하던 `src/transcription/tab_generator.py`(God Object)를 폐기함. 모델 처리(Fingering/Quantization)와 렌더링(Tab/MIDI Renderer) 영역을 디렉토리 수준(`src/transcription/` vs `src/renderers/`)에서 완전히 분리하여 모듈 간 결합도를 최저 수준으로 낮춤.
