@@ -20,6 +20,7 @@
 1. **`frozen=True` Dataclass 도입:** 데이터의 단일 진실 공급원(SSOT)으로서 `src/models/events.py`에 `NoteEvent` 데이터 클래스를 정의하고 상태 변경을 제한(Lock)한다.
 2. **`update()` 메서드 패턴 (Immutable Replacement):** 파이프라인 진행 중 값이 할당되거나 변경되어야 할 경우(예: Viterbi의 `fret` 할당, Quantizer의 `grid_index` 할당), 기존 객체를 직접 수정하지 않고 파이썬의 `dataclasses.replace`를 활용하여 **변경된 값을 반영한 새로운 복제 객체를 반환**하도록 한다.
 3. **List 누적 및 얕은 복사(Shallow Copy):** `dict` 키 기반의 데이터 관리 로직을 폐기하고, 모든 이벤트를 `List[NoteEvent]` 형태로 순차적으로 누적한다. 모듈 내부에서 리스트 조작이 필요할 때는 `events.copy()`로 얕은 복사를 수행한 뒤, 필요한 인덱스에 `update()`된 새 객체를 대체 삽입하여 원본 리스트의 무결성을 유지하려 시도한다.
+4. 4. **God Object의 해체 및 단일 책임 원칙(SRP) 적용:** 기존 `BassTabGenerator`가 중앙에서 독점하던 파이프라인 제어권을 해체하고, DSP 분석(`tracker.py`, `parser.py`), 모델 추론(`fingering.py`), 시간 동기화(`quantization.py`), 그리고 뷰 렌더링(`renderers/`)으로 책임을 완전히 분산하여 모듈화를 달성한다.
 
 ## 3. Considered Options (검토된 대안들)
 
