@@ -1,7 +1,8 @@
-# [Devlog] 베이스 채보 파이프라인 정량 평가 프레임워크 구축기
+# [Devlog] 베이스 분리 및 채보 파이프라인 정량 평가 프레임워크 구축기
 
 **문서 경로:** `docs/devlogs/evaluation_devlog.md`  
-**작성 목적:** 주관적 청감에 의존하던 알고리즘 튜닝을 탈피하고, 향후 MLOps 전이 학습(Transfer Learning) 및 알고리즘 고도화의 기준점이 될 정량적 평가 프레임워크의 설계 철학과 노트북 구성, 그리고 핵심 트러블슈팅 내역을 기록한다.
+**작성 목적:** 주관적 청감에 의존하던 알고리즘 튜닝을 탈피하고, 향후 MLOps 전이 학습(Transfer Learning) 및 알고리즘 고도화의 기준점이 될 **음원 분리(Source Separation) 및 타브 채보(Transcription)** E2E 파이프라인 정량적 평가 프레임워크의 설계 철학과 핵심 트러블슈팅 내역을 기록한다.
+
 
 ---
 
@@ -48,9 +49,36 @@
 ### Phase 3: 정성 분석 (`04_evaluation/03_Error_Analysis_and_Visualization.ipynb`)
 *   **역할:** 수치 뒤에 가려진 에러의 원인 시각화. GT(Ground Truth)와 예측 악보를 피아노 롤 평면 위에 중첩(Overlap)하여 옥타브 에러, 가짜 노트(Ghost Note) 발생 구간을 추적.
 
+### Phase 4: CLI 벤치마크 평가 가동 (`run_batch_eval.py`)
+*   **역할:** 노트북(Notebook) 환경의 프로토타이핑을 넘어, 터미널 환경에서 대규모 배치 평가를 가동하는 프로덕션 레벨 스크립트. OOM 방어 및 위상 지연(Latency Shift) 자동 보정 로직이 탑재되어 있음.
+*   **실행 규격:**
+    ```bash
+    python -m src.evaluation.run_batch_eval \
+        --test_dir ./slakh_processed/test \
+        --isolated False \
+        --onset_tolerance 0.1 \
+        --exp_id Phase8_Baseline
+    ```
+
 ---
 
 ## 3. 핵심 트러블슈팅 및 아키텍처 결정 사항 (ADR 요약)
+
+평가 프레임워크 구축 과정에서 발생한 주요 문제점과 수학적/엔지니어링적 해결 방안의 요약입니다.
+
+| Issue | Cause | Solution |
+| :--- | :--- | :--- |
+| **GT Polyphony Penalty** | 정답 악보의 화음/더블스탑이 단선율 모델(CREPE) 평가 시 억울한 미검출(FN) 감점 유발. | 겹치는 서스테인을 보존하며 분할 절단하는 **최종 입력음 우선(Last-Note Priority)** 평탄화 로직 구축. |
+| **Demucs Latency Shift** | 분리 모델 CNN 패딩 연산으로 인한 수십 ms의 고정 위상 지연이 E2E Onset 점수를 깎아내림. | 평가 진입 전 상호상관도(Cross-correlation) 연산으로 정답과 추정 오디오의 **위상 지연 수학적 동기화**. |
+| **False Baseline** | 양자화 후 데이터를 Raw 평가에 재사용하여 순수 피치 트래커 성능이 왜곡됨. | 코어 파이프라인의 반환 시그니처를 확장하여 Raw 데이터(`fingered_events`)를 분리 주입. |
+| **Duration Bug Masking** | 0초 이하의 지속시간 발생 시 예외 처리로 50ms를 덮어씌워 파이프라인의 꼬리 절단 버그가 은폐됨. | 엣지 케이스 발생 시 강제 보정하되 `logging.warning`을 명시하여 개발자 관측성(Observability) 확보. |
+| **OOM & System Crash** | 151곡 배치 평가 시 누적되는 VRAM 파편화 및 동기적 호출에 의한 이벤트 루프 마비. | 샌드박스 초기화, 강제 GC 호출 및 `loop.run_in_executor` 스레드풀 위임을 통한 인프라 안정화. |
+| **Data Evaporation** | 장시간 평가 중 크래시 발생 시 메모리에 적재된 벤치마크 데이터가 모두 증발함. | 트랙 완료 시마다 JSON에 덮어쓰는 **상태 영속성 보장 (Incremental Save)** 로직 도입. |
+| **Cross-Contamination** | 단일 트랙 분리 실패 시 이전 곡의 임시 베이스 오디오가 섞여 들어가는 교차 오염 발생. | 트랙 단위 평가 종료 시 `outputs/eval_temp` 디렉토리를 물리적으로 통삭제하는 샌드박싱 확립. |
+| **Octave Double Penalty** | 모델의 옥타브 에러가 50센트 공차에 의해 FN + FP로 이중 감점되어 화성 추적력이 과소평가됨. | 부동소수점 다이렉트 모듈로 연산(`% 12`)을 통해 순수 피치 일치율을 뽑아내는 **Chroma F1 지표 신설**. |
+| **Empty Array Crash** | 무음(Empty GT/Prediction) 트랙 진입 시 `mir_eval` 크래시 및 다운스트림 `KeyError` 발생. | `empty_schema`를 강제 반환하여 배치 파이프라인의 **평가 스키마 무결성(Schema Integrity)** 보장. |
+
+*(이하 각 항목별 상세 원인 및 설계 논리)*
 
 ### 3.1. GT MIDI 강제 단선율화 (Monophonic Flattening) 
 *   **이슈:** Slakh2100의 GT 악보는 다성부(Polyphony, 더블 스탑 및 레가토)를 포함하나, 파이프라인의 CREPE 모델은 단선율 전용 아키텍처임.
