@@ -17,7 +17,13 @@ async def run_batch(test_dir: str, is_isolated: bool, onset_tolerance: float, ex
     print(f"🔍 총 {len(track_dirs)}곡 벤치마크 시작 (Isolated: {is_isolated})")
     
     results = []
-    f1_scores = []
+    
+    # [Fix] 다양한 KPI 집계를 위한 리스트 초기화
+    f1_scores_raw = []
+    f1_scores_quantized = []
+    chroma_f1_scores = []
+    octave_errors = []
+    
     out_json = f"results/{exp_id}_batch_results.json"
     os.makedirs("results", exist_ok=True)
     
@@ -30,7 +36,7 @@ async def run_batch(test_dir: str, is_isolated: bool, onset_tolerance: float, ex
             continue
             
         try:
-            metrics = await run_transcription_evaluation(
+            metrics_payload = await run_transcription_evaluation(
                 ref_midi_path=ref_midi, 
                 audio_path=est_audio, 
                 is_isolated=is_isolated, 
@@ -38,11 +44,18 @@ async def run_batch(test_dir: str, is_isolated: bool, onset_tolerance: float, ex
                 ref_audio_path=ref_audio if not is_isolated else None
             )
             
-            if metrics and 'Onset_Pitch_F1' in metrics:
-                f1_scores.append(metrics['Onset_Pitch_F1'])
-                results.append({"track": track_dir.name, "metrics": metrics})
+            if metrics_payload and 'quantized' in metrics_payload:
+                raw_m = metrics_payload['raw']
+                quant_m = metrics_payload['quantized']
                 
-                # [Fix B] 데이터 증발 방지: 트랙 하나 끝날 때마다 중간 저장 (Incremental Save)
+                f1_scores_raw.append(raw_m.get('Onset_Pitch_F1', 0.0))
+                f1_scores_quantized.append(quant_m.get('Onset_Pitch_F1', 0.0))
+                chroma_f1_scores.append(quant_m.get('Chroma_F1', 0.0))
+                octave_errors.append(quant_m.get('Octave_Error_Rate', 0.0))
+                
+                results.append({"track": track_dir.name, "metrics": metrics_payload})
+                
+                # 데이터 증발 방지: 트랙 하나 끝날 때마다 중간 저장
                 with open(out_json, "w", encoding="utf-8") as f:
                     json.dump({"details": results}, f, indent=4)
                 
@@ -51,34 +64,42 @@ async def run_batch(test_dir: str, is_isolated: bool, onset_tolerance: float, ex
             continue
             
         finally:
-            # [Fix A] 이전 트랙의 잔여 파일로 인한 교차 오염 방지 및 디스크 I/O 최적화
+            # 잔여 파일로 인한 교차 오염 방지 및 디스크 I/O 최적화
             if not is_isolated:
                 shutil.rmtree("outputs/eval_temp", ignore_errors=True)
             
-            # [기존 Fix] VRAM 파편화 방어
+            # VRAM 파편화 방어
             gc.collect()
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
                 torch.cuda.ipc_collect()
 
-    if not f1_scores:
+    if not f1_scores_quantized:
         print("❌ 유효한 평가 결과가 없습니다.")
         return
 
-    # 최종 결과 요약 업데이트
-    mean_f1 = float(np.mean(f1_scores))
-    median_f1 = float(np.median(f1_scores))
+    # [Fix] 최종 결과 요약 다각화
+    summary = {
+        "total_tracks": len(f1_scores_quantized),
+        "raw_Onset_Pitch_F1_mean": float(np.mean(f1_scores_raw)),
+        "quantized_Onset_Pitch_F1_mean": float(np.mean(f1_scores_quantized)),
+        "quantized_Onset_Pitch_F1_median": float(np.median(f1_scores_quantized)),
+        "Chroma_F1_mean": float(np.mean(chroma_f1_scores)),
+        "Octave_Error_Rate_mean": float(np.mean(octave_errors))
+    }
     
     print("\n" + "="*50)
-    print(f"🎯 벤치마크 최종 결과 ({len(f1_scores)}곡)")
+    print(f"🎯 벤치마크 최종 결과 ({summary['total_tracks']}곡)")
     print("="*50)
-    print(f"✅ Mean Onset-Pitch F1   : {mean_f1 * 100:.2f}%")
-    print(f"✅ Median Onset-Pitch F1 : {median_f1 * 100:.2f}%")
+    print(f"✅ [Raw] Mean Onset-Pitch F1       : {summary['raw_Onset_Pitch_F1_mean'] * 100:.2f}%")
+    print(f"✅ [Quantized] Mean Onset-Pitch F1 : {summary['quantized_Onset_Pitch_F1_mean'] * 100:.2f}%")
+    print(f"✅ [Quantized] Mean Chroma F1      : {summary['Chroma_F1_mean'] * 100:.2f}%")
+    print(f"⚠️ [Quantized] Mean Octave Error   : {summary['Octave_Error_Rate_mean'] * 100:.2f}%")
     print("="*50)
     
     # 최종 서머리가 포함된 최종 JSON 덮어쓰기
     with open(out_json, "w", encoding="utf-8") as f:
         json.dump({
-            "summary": {"mean_f1": mean_f1, "median_f1": median_f1, "total_tracks": len(f1_scores)},
+            "summary": summary,
             "details": results
         }, f, indent=4)

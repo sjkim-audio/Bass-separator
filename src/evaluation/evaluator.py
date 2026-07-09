@@ -279,12 +279,17 @@ async def run_transcription_evaluation(ref_midi_path: str, audio_path: str, is_i
         print("-" * 40)
         print("🔹 Transcription Summary (mir_eval)")
         print("-" * 40)
-        print(f"✅ [Quantized] Onset-Pitch F1-Score : {metrics_quantized['Onset_Pitch_F1'] * 100:.2f}%")
-        print(f"✅ [Quantized] Chroma F1-Score      : {metrics_quantized['Chroma_F1'] * 100:.2f}%")
-        print(f"⚠️ [Quantized] Octave Error Rate    : {metrics_quantized['Octave_Error_Rate'] * 100:.2f}%")
+        print(f"✅ [Raw] Onset-Pitch F1-Score        : {metrics_raw['Onset_Pitch_F1'] * 100:.2f}%")
+        print(f"✅ [Quantized] Onset-Pitch F1-Score  : {metrics_quantized['Onset_Pitch_F1'] * 100:.2f}%")
+        print(f"✅ [Quantized] Chroma F1-Score       : {metrics_quantized.get('Chroma_F1', 0.0) * 100:.2f}%")
+        print(f"⚠️ [Quantized] Octave Error Rate     : {metrics_quantized.get('Octave_Error_Rate', 0.0) * 100:.2f}%")
         print("-" * 40)
         
-        return metrics_quantized
+        # [Fix] Quantized 점수만 버리지 않고, Raw 점수도 함께 묶어서 반환
+        return {
+            "raw": metrics_raw,
+            "quantized": metrics_quantized
+        }
         
     except Exception as e:
         print(f"❌ Error during transcription evaluation: {e}")

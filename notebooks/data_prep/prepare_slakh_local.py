@@ -3,15 +3,47 @@ import yaml
 import shutil
 import subprocess
 import tarfile
+import re
+import time
+import stat
 from pathlib import Path
 from tqdm.auto import tqdm
 import sys
 
-# [설정] 본인의 PC방/로컬 환경에 맞게 경로 지정
-TAR_PATH = Path(r"C:\Users\user\Desktop\Slakh_Work\slakh2100_flac_redux.tar.gz")
-OUTPUT_DIR = Path(r"C:\Users\user\Desktop\Slakh_Work\slakh_test")
-TEMP_SANDBOX = Path(r"C:\Users\user\Desktop\Slakh_Work\_temp_extraction")
-FFMPEG_EXE = Path(__file__).parent / "ffmpeg.exe"
+# 1. FFmpeg 시스템 경로 확인
+system_ffmpeg = shutil.which("ffmpeg")
+if system_ffmpeg is None:
+    print("❌ 오류: 시스템 PATH에 FFmpeg가 설치되어 있지 않습니다. OS에 맞게 FFmpeg를 설치해주세요.")
+    sys.exit(1)
+    
+FFMPEG_EXE = Path(system_ffmpeg)
+
+# [설정] 본인의 PC/로컬 환경에 맞게 경로 지정
+TAR_PATH = Path(r"G:\Bass_separator_dataset\slakh2100_flac_redux.tar.gz")
+OUTPUT_DIR = Path(r"G:\Bass_separator_dataset\slakh_test")
+TEMP_SANDBOX = Path(r"G:\Bass_separator_dataset\_temp_extraction")
+
+# ---------------------------------------------------------
+# 윈도우 환경 파일 락 방어 로직 (읽기 전용 강제 해제 및 재시도)
+# ---------------------------------------------------------
+def robust_rmtree(path, max_retries=3):
+    def on_error(func, p, exc_info):
+        try:
+            os.chmod(p, stat.S_IWRITE)  # 읽기 전용 속성 강제 해제
+            func(p)
+        except Exception:
+            pass
+
+    for i in range(max_retries):
+        try:
+            if Path(path).exists():
+                shutil.rmtree(path, onerror=on_error)
+            break
+        except Exception as e:
+            if i < max_retries - 1:
+                time.sleep(1)  # 백그라운드 프로세스가 파일을 놓아주기를 기다림
+            else:
+                print(f"\n⚠️ 경고: '{path}' 폴더 삭제 실패. 일부 임시 파일이 남아있을 수 있습니다: {e}")
 
 def main():
     if not FFMPEG_EXE.exists():
@@ -24,7 +56,10 @@ def main():
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     TEMP_SANDBOX.mkdir(parents=True, exist_ok=True)
 
-    valid_tracks = {} # { "Track00001": "S02", ... }
+    valid_tracks = {}
+    
+    # 정규표현식: 'Track' 뒤에 숫자 5자리가 오는 패턴을 정확히 탐색
+    track_pattern = re.compile(r'(Track\d{5})')
     
     # ---------------------------------------------------------
     # Pass 1: 메타데이터 스캔 (메모리 최적화 단방향 스트림)
@@ -37,7 +72,11 @@ def main():
                 if f is None: continue
                 
                 meta = yaml.safe_load(f.read().decode("utf-8"))
-                track_name = Path(member.name).parent.name
+                
+                # 정규표현식으로 트랙 이름 안전하게 추출
+                match = track_pattern.search(member.name)
+                if not match: continue
+                track_name = match.group(1)
                 
                 bass_stems = [k for k, v in meta['stems'].items() if v.get('inst_class') == 'Bass' and v.get('audio_rendered', False)]
                 if len(bass_stems) == 1:
@@ -52,10 +91,12 @@ def main():
     extracted_count = 0
     with tarfile.open(TAR_PATH, "r:gz") as tar:
         for member in tar:
-            # test 폴더 밖의 파일이거나 유효 트랙이 아니면 빠른 스킵
             if "test/Track" not in member.name: continue
             
-            track_name = Path(member.name).parts[-3] if "stems" in member.name or "MIDI" in member.name else Path(member.name).parts[-2]
+            match = track_pattern.search(member.name)
+            if not match: continue
+            track_name = match.group(1)
+            
             if track_name not in valid_tracks: continue
 
             bass_key = valid_tracks[track_name]
@@ -73,8 +114,13 @@ def main():
     # Pass 3: FFmpeg 변환 및 찌꺼기 삭제
     # ---------------------------------------------------------
     print("🚀 [3/3] WAV 변환 및 최종 데이터셋 빌드 중...")
-    # TEMP_SANDBOX 내부 구조: _temp_extraction/slakh2100_flac_redux/test/TrackXXXXX/...
-    temp_test_dir = next(TEMP_SANDBOX.rglob("test"), None)
+    
+    # test 폴더를 찾는 방식을 조금 더 유연하게 변경
+    temp_test_dir = None
+    for p in TEMP_SANDBOX.rglob("test"):
+        if p.is_dir():
+            temp_test_dir = p
+            break
     
     if not temp_test_dir:
         print("❌ 추출된 데이터가 없습니다.")
@@ -95,22 +141,29 @@ def main():
         bass_mid = track_dir / "MIDI" / f"{bass_key}.mid"
 
         try:
-            subprocess.run([str(FFMPEG_EXE), '-y', '-i', str(mix_flac), str(out_track_dir / 'mix.wav')], capture_output=True, check=True)
-            subprocess.run([str(FFMPEG_EXE), '-y', '-i', str(bass_flac), str(out_track_dir / 'bass_gt.wav')], capture_output=True, check=True)
-            shutil.copy2(str(bass_mid), str(out_track_dir / 'bass_gt.mid'))
+            subprocess.run([str(FFMPEG_EXE), '-y', '-loglevel', 'error', '-i', str(mix_flac), str(out_track_dir / 'mix.wav')], capture_output=True, check=True)
+            subprocess.run([str(FFMPEG_EXE), '-y', '-loglevel', 'error', '-i', str(bass_flac), str(out_track_dir / 'bass_gt.wav')], capture_output=True, check=True)
+            
+            if bass_mid.exists():
+                shutil.copy2(str(bass_mid), str(out_track_dir / 'bass_gt.mid'))
+                
         except Exception as e:
             print(f"\n⚠️ [{track_name}] 변환 실패: {e}")
-            shutil.rmtree(out_track_dir, ignore_errors=True)
+            robust_rmtree(str(out_track_dir))  # 실패한 트랙의 잔여물 안전하게 삭제
 
     # 샌드박스 전체 삭제로 공간 반환
-    shutil.rmtree(TEMP_SANDBOX, ignore_errors=True)
+    print("\n🧹 임시 샌드박스 파일 정리 중...")
+    robust_rmtree(str(TEMP_SANDBOX))
 
     # 압축 로직
-    print("\n🗜️ slakh_test.zip 압축을 시작합니다...")
+    print("🗜️ slakh_test.zip 압축을 시작합니다...")
     zip_output_path = OUTPUT_DIR.parent / "slakh_test" 
     shutil.make_archive(str(zip_output_path), 'zip', root_dir=str(OUTPUT_DIR))
             
-    print(f"✅ 완료! '{zip_output_path}.zip' 파일(약 5GB)만 구글 드라이브에 업로드하십시오.")
+    print(f"✅ 완료! '{zip_output_path}.zip' 파일(약 5GB 예상)만 구글 드라이브에 업로드하십시오.")
 
+# =========================================================
+# 파이썬 실행 트리거 
+# =========================================================
 if __name__ == "__main__":
     main()
