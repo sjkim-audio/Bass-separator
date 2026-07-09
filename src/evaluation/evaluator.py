@@ -177,11 +177,23 @@ class TranscriptionEvaluator:
         ref_intervals, ref_pitches = TranscriptionEvaluator.load_midi_to_mir_eval(ref_midi_path)
         est_intervals, est_pitches = TranscriptionEvaluator._events_to_mir_eval(est_events, use_quantized=test_quantized)
         
-        if len(ref_intervals) == 0 and len(est_intervals) == 0:
-            return {"Onset_F1": 1.0, "Onset_Pitch_F1": 1.0}
-        elif len(ref_intervals) == 0 or len(est_intervals) == 0:
-             return {"Onset_F1": 0.0, "Onset_Pitch_F1": 0.0}
+        # 예외 상황에서도 스키마 무결성을 보장하기 위한 템플릿
+        empty_schema = {
+            "Onset_Precision": 0.0, "Onset_Recall": 0.0, "Onset_F1": 0.0,
+            "Onset_Pitch_Precision": 0.0, "Onset_Pitch_Recall": 0.0, "Onset_Pitch_F1": 0.0,
+            "Chroma_F1": 0.0, "Octave_Error_Rate": 0.0,
+            "Strict_Precision": 0.0, "Strict_Recall": 0.0, "Strict_F1": 0.0
+        }
 
+        if len(ref_intervals) == 0 and len(est_intervals) == 0:
+            perfect_schema = empty_schema.copy()
+            for k in perfect_schema:
+                if "Error" not in k: perfect_schema[k] = 1.0
+            return perfect_schema
+        elif len(ref_intervals) == 0 or len(est_intervals) == 0:
+             return empty_schema.copy()
+
+        # 1. 원본 엄격 평가 (기존 로직)
         scores = mir_eval.transcription.evaluate(
             ref_intervals, ref_pitches, est_intervals, est_pitches,
             onset_tolerance=onset_tolerance, 
@@ -190,18 +202,33 @@ class TranscriptionEvaluator:
             offset_min_tolerance=0.05
         )
         
-        # [수정] mir_eval의 실제 스펙에 맞게 키값 재매핑
+        # 2. 옥타브 무시(Chroma) 평가
+        ref_pitches_chroma = librosa.midi_to_hz((librosa.hz_to_midi(ref_pitches) % 12) + 48)
+        est_pitches_chroma = librosa.midi_to_hz((librosa.hz_to_midi(est_pitches) % 12) + 48)
+        
+        scores_chroma = mir_eval.transcription.evaluate(
+            ref_intervals, ref_pitches_chroma, est_intervals, est_pitches_chroma,
+            onset_tolerance=onset_tolerance, 
+            pitch_tolerance=50.0, 
+            offset_ratio=0.2, 
+            offset_min_tolerance=0.05
+        )
+
+        chroma_f1 = round(scores_chroma.get('F-measure_no_offset', 0.0), 4)
+        strict_pitch_f1 = round(scores.get('F-measure_no_offset', 0.0), 4)
+
         return {
             "Onset_Precision": round(scores.get('Onset_Precision', 0.0), 4),
             "Onset_Recall": round(scores.get('Onset_Recall', 0.0), 4),
             "Onset_F1": round(scores.get('Onset_F-measure', 0.0), 4),
             
-            # 우리가 실제 KPI로 삼아야 할 점수 (Offset 배제)
             "Onset_Pitch_Precision": round(scores.get('Precision_no_offset', 0.0), 4),
             "Onset_Pitch_Recall": round(scores.get('Recall_no_offset', 0.0), 4),
-            "Onset_Pitch_F1": round(scores.get('F-measure_no_offset', 0.0), 4),
+            "Onset_Pitch_F1": strict_pitch_f1,
             
-            # 참고용 엄격한 지표 (Offset 포함)
+            "Chroma_F1": chroma_f1,
+            "Octave_Error_Rate": round(chroma_f1 - strict_pitch_f1, 4),
+            
             "Strict_Precision": round(scores.get('Precision', 0.0), 4),
             "Strict_Recall": round(scores.get('Recall', 0.0), 4),
             "Strict_F1": round(scores.get('F-measure', 0.0), 4)
@@ -252,8 +279,9 @@ async def run_transcription_evaluation(ref_midi_path: str, audio_path: str, is_i
         print("-" * 40)
         print("🔹 Transcription Summary (mir_eval)")
         print("-" * 40)
-        print(f"✅ [Raw] Onset-Pitch F1-Score        : {metrics_raw['Onset_Pitch_F1'] * 100:.2f}%")
-        print(f"✅ [Quantized] Onset-Pitch F1-Score  : {metrics_quantized['Onset_Pitch_F1'] * 100:.2f}%")
+        print(f"✅ [Quantized] Onset-Pitch F1-Score : {metrics_quantized['Onset_Pitch_F1'] * 100:.2f}%")
+        print(f"✅ [Quantized] Chroma F1-Score      : {metrics_quantized['Chroma_F1'] * 100:.2f}%")
+        print(f"⚠️ [Quantized] Octave Error Rate    : {metrics_quantized['Octave_Error_Rate'] * 100:.2f}%")
         print("-" * 40)
         
         return metrics_quantized
