@@ -39,6 +39,11 @@
 *   **음향 무결성 보존:** 단순 오디오 합산 시 발생하는 클리핑을 방지하기 위해 공식 `metadata.yaml`의 `overall_gain`을 수학적으로 적용한 `bassless_mr.wav` 생성.
 *   **I/O 최적화:** 무거운 `librosa` 리샘플링을 배제하고 `soundfile` 기반의 온더플라이(On-the-fly) FLAC to WAV 디코딩을 채택하여 수천 곡의 전처리 시간을 획기적으로 단축.
 
+### Phase 0.5: 데이터 추출 파이프라인 고도화 및 모수 확정
+*   **OS 독립성 확보:** `prepare_slakh_local.py` 스크립트에서 로컬 `ffmpeg.exe` 하드코딩을 제거하고 `shutil.which`를 도입하여 OS 독립성을 확보함. 정규표현식(`re`)을 통해 경로 파편화를 방어함.
+*   **I/O 병목 우회:** Windows 환경 특유의 파일 접근 권한 충돌(Defender 락킹 등)로 인한 샌드박스 삭제 실패를 방어하기 위해, `os.chmod`를 활용한 강제 쓰기 모드 전환 및 재시도(Retry) 로직(`robust_rmtree`)을 구축함.
+*   **최종 벤치마크 모수 동결 (130 트랙):** 총 151개의 원본 테스트 셋 중, 다중 베이스(Multi-bass), 렌더링 실패, 베이스 부재 트랙을 자동 필터링하여 **가장 완벽한 1:1 평가가 가능한 130곡의 클린 데이터셋(Clean Dataset)을 최종 확정**함. 향후 모든 모델 평가는 이 130곡을 분모로 산출됨.
+
 ### Phase 1: 기준점 측정 (`04_evaluation/01_baseline_performance_test.ipynb`)
 *   **역할:** `slakh_eval` 데이터셋 대상 비동기(`nest_asyncio`) 배치 평가 수행 및 CSV 결과 도출.
 
