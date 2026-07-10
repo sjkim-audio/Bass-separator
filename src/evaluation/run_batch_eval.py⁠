@@ -1,3 +1,5 @@
+# src/evaluation/run_batch_eval.py
+
 import os
 import argparse
 import asyncio
@@ -18,11 +20,16 @@ async def run_batch(test_dir: str, is_isolated: bool, onset_tolerance: float, ex
     
     results = []
     
-    # [Fix] 다양한 KPI 집계를 위한 리스트 초기화
+    # Transcription 성능 집계를 위한 리스트 초기화
     f1_scores_raw = []
     f1_scores_quantized = []
     chroma_f1_scores = []
     octave_errors = []
+    
+    # Separation 성능 집계를 위한 리스트 초기화
+    sdr_scores = []
+    sir_scores = []
+    sar_scores = []
     
     out_json = f"results/{exp_id}_batch_results.json"
     os.makedirs("results", exist_ok=True)
@@ -47,15 +54,23 @@ async def run_batch(test_dir: str, is_isolated: bool, onset_tolerance: float, ex
             if metrics_payload and 'quantized' in metrics_payload:
                 raw_m = metrics_payload['raw']
                 quant_m = metrics_payload['quantized']
+                sep_m = metrics_payload.get('separation', {})
                 
+                # Transcription 지표 누적
                 f1_scores_raw.append(raw_m.get('Onset_Pitch_F1', 0.0))
                 f1_scores_quantized.append(quant_m.get('Onset_Pitch_F1', 0.0))
                 chroma_f1_scores.append(quant_m.get('Chroma_F1', 0.0))
                 octave_errors.append(quant_m.get('Octave_Error_Rate', 0.0))
                 
+                # Separation 지표가 페이로드에 존재할 경우 누적 (E2E 모드 방어)
+                if sep_m and 'SDR' in sep_m:
+                    sdr_scores.append(sep_m['SDR'])
+                    sir_scores.append(sep_m['SIR'])
+                    sar_scores.append(sep_m['SAR'])
+                
                 results.append({"track": track_dir.name, "metrics": metrics_payload})
                 
-                # 데이터 증발 방지: 트랙 하나 끝날 때마다 중간 저장
+                # 상태 영속성 보장: 트랙 하나가 완료될 때마다 실시간 중간 저장
                 with open(out_json, "w", encoding="utf-8") as f:
                     json.dump({"details": results}, f, indent=4)
                 
@@ -64,11 +79,11 @@ async def run_batch(test_dir: str, is_isolated: bool, onset_tolerance: float, ex
             continue
             
         finally:
-            # 잔여 파일로 인한 교차 오염 방지 및 디스크 I/O 최적화
+            # 잔여 파일로 인한 트랙 간 교차 오염 방지 및 디스크 I/O 샌드박싱
             if not is_isolated:
                 shutil.rmtree("outputs/eval_temp", ignore_errors=True)
             
-            # VRAM 파편화 방어
+            # VRAM 파편화 방어 및 가비지 컬렉션 강제 가동
             gc.collect()
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
@@ -78,7 +93,7 @@ async def run_batch(test_dir: str, is_isolated: bool, onset_tolerance: float, ex
         print("❌ 유효한 평가 결과가 없습니다.")
         return
 
-    # [Fix] 최종 결과 요약 다각화
+    # 종합 통계(Summary) 데이터셋 다각화 집계
     summary = {
         "total_tracks": len(f1_scores_quantized),
         "raw_Onset_Pitch_F1_mean": float(np.mean(f1_scores_raw)),
@@ -88,18 +103,53 @@ async def run_batch(test_dir: str, is_isolated: bool, onset_tolerance: float, ex
         "Octave_Error_Rate_mean": float(np.mean(octave_errors))
     }
     
+    # E2E 모드 실행으로 분리 성능 지표가 축적되었을 경우에만 요약본에 바인딩
+    if sdr_scores:
+        summary["SDR_mean"] = float(np.mean(sdr_scores))
+        summary["SIR_mean"] = float(np.mean(sir_scores))
+        summary["SAR_mean"] = float(np.mean(sar_scores))
+    
+    # 콘솔 메트릭 대시보드 출력
     print("\n" + "="*50)
     print(f"🎯 벤치마크 최종 결과 ({summary['total_tracks']}곡)")
     print("="*50)
-    print(f"✅ [Raw] Mean Onset-Pitch F1       : {summary['raw_Onset_Pitch_F1_mean'] * 100:.2f}%")
-    print(f"✅ [Quantized] Mean Onset-Pitch F1 : {summary['quantized_Onset_Pitch_F1_mean'] * 100:.2f}%")
-    print(f"✅ [Quantized] Mean Chroma F1      : {summary['Chroma_F1_mean'] * 100:.2f}%")
-    print(f"⚠️ [Quantized] Mean Octave Error   : {summary['Octave_Error_Rate_mean'] * 100:.2f}%")
+    print(f"✅ [Transcription] Raw Onset-Pitch F1       : {summary['raw_Onset_Pitch_F1_mean'] * 100:.2f}%")
+    print(f"✅ [Transcription] Quantized Onset-Pitch F1 : {summary['quantized_Onset_Pitch_F1_mean'] * 100:.2f}%")
+    print(f"✅ [Transcription] Quantized Chroma F1      : {summary['Chroma_F1_mean'] * 100:.2f}%")
+    print(f"⚠️ [Transcription] Quantized Octave Error   : {summary['Octave_Error_Rate_mean'] * 100:.2f}%")
+    
+    if sdr_scores:
+        print("-" * 50)
+        print(f"✅ [Separation] Mean SDR (Overall Quality)  : {summary['SDR_mean']:.2f} dB")
+        print(f"✅ [Separation] Mean SIR (Interference)     : {summary['SIR_mean']:.2f} dB")
+        print(f"✅ [Separation] Mean SAR (Artifacts)        : {summary['SAR_mean']:.2f} dB")
     print("="*50)
     
-    # 최종 서머리가 포함된 최종 JSON 덮어쓰기
+    # 요약 정보와 개별 상세 지표를 포함하여 최종 JSON 영속화
     with open(out_json, "w", encoding="utf-8") as f:
         json.dump({
             "summary": summary,
             "details": results
         }, f, indent=4)
+
+def main():
+    parser = argparse.ArgumentParser(description="대규모 데이터셋 기반 베이스 파이프라인 배치 평가 CLI")
+    parser.add_argument("--test_dir", type=str, required=True, help="Slakh 테스트 데이터셋 루트 경로")
+    parser.add_argument("--isolated", type=str, default="False", help="True일 경우 분리를 건너뛰고 정답 오디오 주입")
+    parser.add_argument("--onset_tolerance", type=float, default=0.1, help="Onset 허용 공차 (s)")
+    parser.add_argument("--exp_id", type=str, default="Phase8_Baseline", help="실험 식별 ID")
+    
+    args = parser.parse_args()
+    
+    # 문자열 인자를 불리언(Boolean) 타입으로 유연하게 변환
+    is_isolated_bool = args.isolated.lower() in ("true", "1", "yes")
+    
+    asyncio.run(run_batch(
+        test_dir=args.test_dir,
+        is_isolated=is_isolated_bool,
+        onset_tolerance=args.onset_tolerance,
+        exp_id=args.exp_id
+    ))
+
+if __name__ == "__main__":
+    main()

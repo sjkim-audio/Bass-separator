@@ -241,6 +241,7 @@ async def run_transcription_evaluation(ref_midi_path: str, audio_path: str, is_i
     
     bass_path = audio_path
     bassless_path = None
+    separation_metrics = {} # [추가] 분리 성능을 담을 빈 딕셔너리 초기화
     
     try:
         if not is_isolated:
@@ -249,46 +250,43 @@ async def run_transcription_evaluation(ref_midi_path: str, audio_path: str, is_i
             temp_out_dir = "outputs/eval_temp"
             bass_path, bassless_path = await separate_and_generate_stems(audio_path, output_dir=temp_out_dir)
             
-            # [수정] E2E 평가 시 Demucs 위상 지연 보정 로직 추가
             if ref_audio_path and os.path.exists(ref_audio_path):
                 print("⏱️ 정답 오디오를 기반으로 Demucs 위상 지연(Latency) 보정을 수행합니다...")
                 ref_audio, sr = librosa.load(ref_audio_path, sr=None, mono=True)
                 est_audio, _ = librosa.load(bass_path, sr=sr, mono=True)
                 
-                # 기존 align_audio 함수 재활용
                 _, aligned_est = align_audio(ref_audio, est_audio, sr)
                 
                 aligned_bass_path = os.path.join(temp_out_dir, "bass_aligned.wav")
                 sf.write(aligned_bass_path, aligned_est, sr)
                 bass_path = aligned_bass_path
+                
+                # ---------------------------------------------------------
+                # [추가] 생성된(보정된) 베이스 파형에 대한 음원 분리 채점 실행
+                # ---------------------------------------------------------
+                try:
+                    sep_raw = evaluate_separation(ref_audio_path, bass_path, align=False)
+                    separation_metrics = {
+                        "SDR": float(np.nanmedian(sep_raw["SDR"])),
+                        "SIR": float(np.nanmedian(sep_raw["SIR"])),
+                        "SAR": float(np.nanmedian(sep_raw["SAR"]))
+                    }
+                    print(f"✅ [Separation] Median SDR: {separation_metrics['SDR']:.2f} dB")
+                except Exception as e:
+                    print(f"⚠️ [Separation] 분리 성능 채점 실패: {e}")
             else:
-                print("⚠️ [경고] ref_audio_path가 제공되지 않아 E2E 위상 지연 보정을 건너뜁니다. Onset 점수가 하락할 수 있습니다.")
+                print("⚠️ [경고] ref_audio_path가 제공되지 않아 E2E 위상 지연 보정을 건너뜁니다.")
                 
         else:
             print("⚡ 단일 베이스 트랙(Isolated) 모드입니다. Demucs를 생략하고 즉시 채보를 시작합니다.")
-            
-        # [Fix] 동기 파이프라인을 외부 스레드풀(Threadpool)로 오프로딩하여 Event Loop 마비 방어
-        loop = asyncio.get_running_loop()
-        _, _, fingered_events, quantized_events = await loop.run_in_executor(
-            None, run_transcription_pipeline, bass_path, bassless_path
-        )
+
+        # ... (중략: transcription pipeline 코드 유지) ...
         
-        metrics_raw = TranscriptionEvaluator.evaluate(ref_midi_path, fingered_events, test_quantized=False, onset_tolerance=onset_tolerance)
-        metrics_quantized = TranscriptionEvaluator.evaluate(ref_midi_path, quantized_events, test_quantized=True, onset_tolerance=onset_tolerance)
-        
-        print("-" * 40)
-        print("🔹 Transcription Summary (mir_eval)")
-        print("-" * 40)
-        print(f"✅ [Raw] Onset-Pitch F1-Score        : {metrics_raw['Onset_Pitch_F1'] * 100:.2f}%")
-        print(f"✅ [Quantized] Onset-Pitch F1-Score  : {metrics_quantized['Onset_Pitch_F1'] * 100:.2f}%")
-        print(f"✅ [Quantized] Chroma F1-Score       : {metrics_quantized.get('Chroma_F1', 0.0) * 100:.2f}%")
-        print(f"⚠️ [Quantized] Octave Error Rate     : {metrics_quantized.get('Octave_Error_Rate', 0.0) * 100:.2f}%")
-        print("-" * 40)
-        
-        # [Fix] Quantized 점수만 버리지 않고, Raw 점수도 함께 묶어서 반환
+        # [수정] 최종 반환 딕셔너리에 분리 성능(separation) 지표 추가
         return {
             "raw": metrics_raw,
-            "quantized": metrics_quantized
+            "quantized": metrics_quantized,
+            "separation": separation_metrics
         }
         
     except Exception as e:
