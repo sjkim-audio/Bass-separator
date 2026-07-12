@@ -241,7 +241,7 @@ async def run_transcription_evaluation(ref_midi_path: str, audio_path: str, is_i
     
     bass_path = audio_path
     bassless_path = None
-    separation_metrics = {} # [추가] 분리 성능을 담을 빈 딕셔너리 초기화
+    separation_metrics = {} # 분리 성능을 담을 빈 딕셔너리 초기화
     
     try:
         if not is_isolated:
@@ -262,7 +262,7 @@ async def run_transcription_evaluation(ref_midi_path: str, audio_path: str, is_i
                 bass_path = aligned_bass_path
                 
                 # ---------------------------------------------------------
-                # [추가] 생성된(보정된) 베이스 파형에 대한 음원 분리 채점 실행
+                # 생성된(보정된) 베이스 파형에 대한 음원 분리 채점 실행
                 # ---------------------------------------------------------
                 try:
                     sep_raw = evaluate_separation(ref_audio_path, bass_path, align=False)
@@ -280,9 +280,27 @@ async def run_transcription_evaluation(ref_midi_path: str, audio_path: str, is_i
         else:
             print("⚡ 단일 베이스 트랙(Isolated) 모드입니다. Demucs를 생략하고 즉시 채보를 시작합니다.")
 
-        # ... (중략: transcription pipeline 코드 유지) ...
+        # ---------------------------------------------------------
+        # [복구됨] 실제 Transcription 파이프라인 가동 및 채점 로직
+        # ---------------------------------------------------------
+        loop = asyncio.get_running_loop()
+        _, _, fingered_events, quantized_events = await loop.run_in_executor(
+            None, run_transcription_pipeline, bass_path, bassless_path
+        )
         
-        # [수정] 최종 반환 딕셔너리에 분리 성능(separation) 지표 추가
+        metrics_raw = TranscriptionEvaluator.evaluate(ref_midi_path, fingered_events, test_quantized=False, onset_tolerance=onset_tolerance)
+        metrics_quantized = TranscriptionEvaluator.evaluate(ref_midi_path, quantized_events, test_quantized=True, onset_tolerance=onset_tolerance)
+        
+        print("-" * 40)
+        print("🔹 Transcription Summary (mir_eval)")
+        print("-" * 40)
+        print(f"✅ [Raw] Onset-Pitch F1-Score        : {metrics_raw['Onset_Pitch_F1'] * 100:.2f}%")
+        print(f"✅ [Quantized] Onset-Pitch F1-Score  : {metrics_quantized['Onset_Pitch_F1'] * 100:.2f}%")
+        print(f"✅ [Quantized] Chroma F1-Score       : {metrics_quantized.get('Chroma_F1', 0.0) * 100:.2f}%")
+        print(f"⚠️ [Quantized] Octave Error Rate     : {metrics_quantized.get('Octave_Error_Rate', 0.0) * 100:.2f}%")
+        print("-" * 40)
+        # ---------------------------------------------------------
+        
         return {
             "raw": metrics_raw,
             "quantized": metrics_quantized,
