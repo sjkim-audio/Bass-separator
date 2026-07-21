@@ -4,17 +4,19 @@ from typing import List, Tuple
 from src.models.events import NoteEvent
 
 class ViterbiSmartFingering:
-        def __init__(self, 
-                 weight_fret: float = 1.0, 
-                 weight_string: float = 1.8, 
-                 weight_high_fret: float = 0.5,
-                 weight_stay: float = 2.5,
-                 block_span: int = 3,           # [신규] 스케일 블록(손가락 4개)이 커버하는 최대 프렛 거리
-                 block_discount: float = 0.3,   # [신규] 블록 내 프렛 이동 시 적용될 가중치 (70% 감면)
-                 shift_threshold: int = 4, 
-                 shift_penalty: float = 6.0, 
-                 open_string_penalty: float = 2.0, 
-                 base_time_penalty: float = 0.1):
+    def __init__(
+        self, 
+        weight_fret: float = 1.0, 
+        weight_string: float = 1.8, 
+        weight_high_fret: float = 0.5,
+        weight_stay: float = 2.5,
+        block_span: int = 3,            # [신규] 스케일 블록(손가락 4개)이 커버하는 최대 프렛 거리
+        block_discount: float = 0.3,    # [신규] 블록 내 프렛 이동 시 적용될 가중치 (70% 감면)
+        shift_threshold: int = 4, 
+        shift_penalty: float = 6.0, 
+        open_string_penalty: float = 2.0, 
+        base_time_penalty: float = 0.1
+    ):
         self.w_f = weight_fret
         self.w_s = weight_string
         self.w_high_fret = weight_high_fret
@@ -24,7 +26,7 @@ class ViterbiSmartFingering:
         self.shift_thresh = shift_threshold
         self.shift_penalty = shift_penalty
         self.open_penalty = open_string_penalty
-        self.base_time_penalty = base_time_penalty 
+        self.base_time_penalty = base_time_penalty
 
     def _calculate_transition_cost(self, pos1: Tuple[int, int], pos2: Tuple[int, int], dt: float) -> float:
         s1, f1 = pos1
