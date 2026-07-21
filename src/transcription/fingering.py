@@ -78,3 +78,60 @@ class ViterbiSmartFingering:
         cost_stay = -self.w_stay if pos1 == pos2 else 0.0
 
         return physical_move_cost + cost_open + cost_height + cost_stay
+
+    def viterbi_decode(self, events: List[NoteEvent], get_candidates_fn) -> List[NoteEvent]:
+        if not events: return []
+        
+        # [수정 4] State Space 초기화 및 방출 비용 제약 조건 내재화
+        state_sequence = []
+        for event in events:
+            # 🛡️ 방어 로직: 과거(midi_note)와 현재(pitch) 변수명 모두 호환
+            midi_val = getattr(event, 'midi_note', getattr(event, 'pitch', 0))
+            hz = librosa.midi_to_hz(midi_val) if midi_val else 0
+            
+            candidates = get_candidates_fn(hz)
+            # 빈 후보군(무음 트랙 등) 발생 시 다운스트림 크래시 방지
+            state_sequence.append(candidates if candidates else [(4, 0)])
+
+        n_steps = len(state_sequence)
+        
+        # DP 테이블 및 역추적 테이블 할당
+        dp = [np.zeros(len(states)) for states in state_sequence]
+        backpointers = [np.zeros(len(states), dtype=int) for states in state_sequence]
+
+        # Forward Pass (순방향 누적 비용 연산)
+        for t in range(1, n_steps):
+            # 🛡️ 방어 로직: 과거(time)와 현재(start_time) 변수명 모두 호환
+            t_curr = getattr(events[t], 'time', getattr(events[t], 'start_time', 0.0))
+            t_prev = getattr(events[t-1], 'time', getattr(events[t-1], 'start_time', 0.0))
+            dt = t_curr - t_prev
+            
+            for curr_idx, curr_state in enumerate(state_sequence[t]):
+                costs = [dp[t-1][p_idx] + self._calculate_transition_cost(p_state, curr_state, dt)
+                         for p_idx, p_state in enumerate(state_sequence[t-1])]
+                dp[t][curr_idx] = np.min(costs)
+                backpointers[t][curr_idx] = np.argmin(costs)
+
+        # Backward Pass (역추적을 통한 전역 최적해 복원)
+        curr_idx = int(np.argmin(dp[-1]))
+        best_path = [curr_idx]
+        for t in range(n_steps - 1, 0, -1):
+            curr_idx = backpointers[t][curr_idx]
+            best_path.append(curr_idx)
+        best_path.reverse()
+
+        # 새로운 객체를 생성하여 반환 (불변성 유지)
+        for t, event in enumerate(events):
+            best_string, best_fret = state_sequence[t][best_path[t]]
+            
+            # 🛡️ 방어 로직: update 메서드 존재 유무에 따라 안전하게 속성 주입
+            if hasattr(event, 'update'):
+                try:
+                    event.update(string_idx=best_string, fret=best_fret)
+                except TypeError:
+                    event.update(string=best_string, fret=best_fret)
+            else:
+                event.string = best_string
+                event.fret = best_fret
+
+        return events
