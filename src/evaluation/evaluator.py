@@ -7,6 +7,7 @@ import scipy.signal
 import traceback
 import soundfile as sf
 import asyncio
+from scipy import signal
 
 from typing import List, Dict
 
@@ -20,50 +21,53 @@ from src.models.events import NoteEvent
 warnings.filterwarnings('ignore', module='librosa')
 warnings.filterwarnings('ignore', module='pretty_midi')
 
-def align_audio(ref: np.ndarray, est: np.ndarray, sr: int = 44100):
-    max_len = sr * 30  
-    ref_mono = np.mean(ref, axis=0) if ref.ndim > 1 else ref
-    est_mono = np.mean(est, axis=0) if est.ndim > 1 else est
+def align_audio(ref_audio, est_audio, sr):
+    """
+    상호 상관(Cross-correlation)을 사용하여 두 1D 오디오 배열의 위상 지연을 맞춥니다.
+    """
+    # 1D 배열로 강제 변환 (차원 충돌 방지)
+    ref_audio = np.atleast_1d(ref_audio).squeeze()
+    est_audio = np.atleast_1d(est_audio).squeeze()
     
-    correlation = scipy.signal.correlate(ref_mono[:max_len], est_mono[:max_len], mode='full')
-    lag = int(np.argmax(correlation) - (len(est_mono[:max_len]) - 1))
+    correlation = signal.correlate(ref_audio, est_audio, mode='full')
+    lags = signal.correlation_lags(len(ref_audio), len(est_audio), mode='full')
+    lag = lags[np.argmax(correlation)]
     
+    # 1D 슬라이싱 적용
     if lag > 0:
-        est = est[:, lag:]
-        ref = ref[:, :-lag]
+        est_audio = est_audio[lag:]
+        ref_audio = ref_audio[:len(est_audio)]
     elif lag < 0:
-        lag = abs(lag)
-        est = est[:, :-lag]
-        ref = ref[:, lag:]
+        ref_audio = ref_audio[-lag:]
+        est_audio = est_audio[:len(ref_audio)]
         
-    return ref, est
+    min_len = min(len(ref_audio), len(est_audio))
+    return ref_audio[:min_len], est_audio[:min_len]
 
-def evaluate_separation(reference_path: str, estimated_path: str, align: bool = True) -> dict:
-    ref, sr = librosa.load(reference_path, sr=None, mono=False)
-    est, _ = librosa.load(estimated_path, sr=sr, mono=False)
-
-    if ref.ndim == 1: ref = ref[np.newaxis, :]
-    if est.ndim == 1: est = est[np.newaxis, :]
-
-    min_len = min(ref.shape[1], est.shape[1])
-    ref = ref[:, :min_len]
-    est = est[:, :min_len]
-
+def evaluate_separation(ref_path: str, est_path: str, align: bool = False):
+    """
+    SDR, SIR, SAR 평가 로직 (museval 대신 안정적인 mir_eval 사용)
+    """
+    ref_audio, sr = librosa.load(ref_path, sr=None, mono=True)
+    est_audio, _ = librosa.load(est_path, sr=sr, mono=True)
+    
     if align:
-        ref, est = align_audio(ref, est, sr)
-
-    ref_eval = ref.T[np.newaxis, :, :]
-    est_eval = est.T[np.newaxis, :, :]
-
-    sdr, isr, sir, sar, _ = museval.eval_bss_v4(ref_eval, est_eval, win=sr)
-
-    return {
-        "SDR": sdr.squeeze(),
-        "SIR": sir.squeeze(),
-        "SAR": sar.squeeze(),
-        "sr": sr,
-        "hop_sec": 1.0
-    }
+        ref_audio, est_audio = align_audio(ref_audio, est_audio, sr)
+    else:
+        min_len = min(len(ref_audio), len(est_audio))
+        ref_audio = ref_audio[:min_len]
+        est_audio = est_audio[:min_len]
+    
+    # mir_eval BSS는 [sources, samples] 2D 구조를 요구하므로 차원 추가
+    ref_sources = ref_audio[np.newaxis, :]
+    est_sources = est_audio[np.newaxis, :]
+    
+    try:
+        sdr, sir, sar, _ = mir_eval.separation.bss_eval_sources(ref_sources, est_sources)
+        return {"SDR": sdr, "SIR": sir, "SAR": sar}
+    except Exception as e:
+        print(f"⚠️ BSS_Eval 에러: {e}")
+        return {"SDR": [np.nan], "SIR": [np.nan], "SAR": [np.nan]}
 
 def run_separation_evaluation(ref_path: str, est_path: str, align: bool = True) -> dict:
     print(f"📊 [Separation] Processing: {os.path.basename(est_path)}")
