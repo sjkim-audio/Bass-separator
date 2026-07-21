@@ -82,6 +82,8 @@
 | **Cross-Contamination** | 단일 트랙 분리 실패 시 이전 곡의 임시 베이스 오디오가 섞여 들어가는 교차 오염 발생. | 트랙 단위 평가 종료 시 `outputs/eval_temp` 디렉토리를 물리적으로 통삭제하는 샌드박싱 확립. |
 | **Octave Double Penalty** | 모델의 옥타브 에러가 50센트 공차에 의해 FN + FP로 이중 감점되어 화성 추적력이 과소평가됨. | 부동소수점 다이렉트 모듈로 연산(`% 12`)을 통해 순수 피치 일치율을 뽑아내는 **Chroma F1 지표 신설**. |
 | **Empty Array Crash** | 무음(Empty GT/Prediction) 트랙 진입 시 `mir_eval` 크래시 및 다운스트림 `KeyError` 발생. | `empty_schema`를 강제 반환하여 배치 파이프라인의 **평가 스키마 무결성(Schema Integrity)** 보장. |
+| **1D Array Slicing Crash** | 모노(1D) 오디오 배열에 스테레오(2D) 전용 슬라이싱(`[:, lag:]`)을 시도하여 차원 충돌 및 파이프라인 붕괴 발생. | `np.atleast_1d().squeeze()`를 통해 입력 배열을 1D 규격으로 강제 평탄화(Flattening)하고 슬라이싱 로직 교체. |
+| **Separation API Deprecation** | `museval` 패키지 업데이트로 인한 `eval_bss_v4` API 소실로 음원 분리(SDR) 채점 불가. | `mir_eval.separation`으로 평가 엔진을 마이그레이션하고, 2D 텐서 주입 및 `NaN` 예외 반환 방어 로직 구축. |
 
 *(이하 각 항목별 상세 원인 및 설계 논리)*
 
@@ -135,6 +137,18 @@
 ### 3.10. 평가 스키마 무결성(Schema Integrity) 강제화
 *   **이슈:** 곡의 특정 구간에 정답 악보가 아예 비어있거나(Empty GT), 모델이 베이스 음표를 단 하나도 추출하지 못했을 경우(Empty Prediction) `mir_eval`의 연산이 붕괴함. 이 과정에서 누락된 반환 키워드로 인해 대규모 배치 평가 하위 파이프라인(`save_experiment_results`)에서 `KeyError`가 발생하며 전체 프로세스가 다운될 위험이 존재함.
 *   **해결:** 모든 평가 반환값을 포괄하는 통합된 빈 스키마(`empty_schema`) 템플릿을 정의함. 엣지 케이스 진입 시, 해당 곡이 "정답도 없고 추출도 안 한 완벽한 무음"이라면 1.0(만점)을, "정답은 있는데 추출을 못한 경우"라면 0.0을 채운 스키마를 강제로 반환하도록 설계하여 다운스트림 로직의 안전성을 원천 보장함.
+
+### 3.11. Audio Alignment 차원 충돌 해결 (DSP 데이터 규격 표준화)
+*   **이슈:** E2E 배치 평가 중 Demucs 지연시간 보정 로직(`align_audio`)에서 `IndexError: too many indices for array`가 발생하며 전체 파이프라인이 중단됨.
+*   **원인:** 연산량 최적화 및 평가 통일성을 위해 오디오 로드 단계를 Mono(1D 배열)로 통일했으나, 과거 작성된 위상 정렬 로직은 Stereo(2D 배열 `[channels, samples]`) 구조의 슬라이싱 문법(`est[:, lag:]`)을 그대로 유지하고 있어 차원(Dimension) 불일치가 발생함.
+*   **해결:** `np.atleast_1d().squeeze()`를 적용해 배열의 차원을 완벽한 1D 규격으로 평탄화(Flattening)하고, 1D 전용 인덱싱으로 위상 정렬 슬라이싱 로직을 전면 재작성함. 향후 파이프라인의 모든 DSP 연산은 1D Mono 배열을 기준으로 수행함을 아키텍처 원칙으로 확립함.
+
+### 3.12. 분리 성능 채점 라이브러리 마이그레이션 (`museval` ➔ `mir_eval`)
+*   **이슈:** 음원 분리 채점 모듈 진입 시 `module 'museval' has no attribute 'eval_bss_v4'` 에러가 발생하여 SDR, SIR, SAR 수치 산출이 전면 중단됨.
+*   **원인:** 기존 의존성이던 `museval` 라이브러리의 버전 업데이트 및 API Deprecation으로 인해 내부 함수 호출 시스템이 붕괴됨.
+*   **해결:** BSS(Blind Source Separation) 지표 평가 엔진을, 동일한 수학적 결과를 보장하며 생태계 표준에 가까운 `mir_eval.separation.bss_eval_sources` API로 전면 교체함.
+    *   **차원 브릿지(Dimension Bridge) 주입:** `mir_eval` 엔진이 요구하는 `[sources, samples]` 2D 텐서 규격을 맞추기 위해, 내부적으로 1D Mono 오디오에 `np.newaxis`를 활용하여 차원을 강제 주입하는 인터페이스 로직을 추가함.
+    *   **방어적 프로그래밍 (Defensive Fallback):** 특정 트랙이 완벽한 무음(Silence)으로 분리되는 등 엣지 케이스에서 수학적 예외(Zero division 등)가 발생하더라도 평가 루프 전체가 죽지 않도록 `Try-Except` 블록을 구성하고, 실패 시 `NaN` 통계치를 반환하여 데이터 프레임 붕괴를 방어함.
 
 ---
 
