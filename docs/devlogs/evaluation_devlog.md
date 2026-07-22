@@ -86,7 +86,7 @@
 | **Separation API Deprecation** | `museval` 패키지 업데이트로 인한 `eval_bss_v4` API 소실로 음원 분리(SDR) 채점 불가. | `mir_eval.separation`으로 평가 엔진을 마이그레이션하고, 2D 텐서 주입 및 `NaN` 예외 반환 방어 로직 구축. |
 
 <details>
-<summary><b>*(이하 각 항목별 상세 원인 및 설계 논리)*
+<summary><b>각 항목별 상세 원인 및 설계 논리</b></summary>
 
 ### 3.1. GT MIDI 강제 단선율화 (Monophonic Flattening) 
 *   **이슈:** Slakh2100의 GT 악보는 다성부(Polyphony, 더블 스탑 및 레가토)를 포함하나, 파이프라인의 CREPE 모델은 단선율 전용 아키텍처임.
