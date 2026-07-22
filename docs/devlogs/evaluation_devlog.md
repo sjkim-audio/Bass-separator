@@ -85,7 +85,8 @@
 | **1D Array Slicing Crash** | 모노(1D) 오디오 배열에 스테레오(2D) 전용 슬라이싱(`[:, lag:]`)을 시도하여 차원 충돌 및 파이프라인 붕괴 발생. | `np.atleast_1d().squeeze()`를 통해 입력 배열을 1D 규격으로 강제 평탄화(Flattening)하고 슬라이싱 로직 교체. |
 | **Separation API Deprecation** | `museval` 패키지 업데이트로 인한 `eval_bss_v4` API 소실로 음원 분리(SDR) 채점 불가. | `mir_eval.separation`으로 평가 엔진을 마이그레이션하고, 2D 텐서 주입 및 `NaN` 예외 반환 방어 로직 구축. |
 
-*(이하 각 항목별 상세 원인 및 설계 논리)*
+<details>
+<summary><b>*(이하 각 항목별 상세 원인 및 설계 논리)*
 
 ### 3.1. GT MIDI 강제 단선율화 (Monophonic Flattening) 
 *   **이슈:** Slakh2100의 GT 악보는 다성부(Polyphony, 더블 스탑 및 레가토)를 포함하나, 파이프라인의 CREPE 모델은 단선율 전용 아키텍처임.
@@ -151,6 +152,7 @@
     *   **방어적 프로그래밍 (Defensive Fallback):** 특정 트랙이 완벽한 무음(Silence)으로 분리되는 등 엣지 케이스에서 수학적 예외(Zero division 등)가 발생하더라도 평가 루프 전체가 죽지 않도록 `Try-Except` 블록을 구성하고, 실패 시 `NaN` 통계치를 반환하여 데이터 프레임 붕괴를 방어함.
 
 ---
+</details>
 
 ## 4. 시스템 한계점 및 향후 과제 (Limitations & Future Work)
 
