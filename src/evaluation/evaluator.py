@@ -141,7 +141,28 @@ class TranscriptionEvaluator:
         pitches_arr = np.array(final_pitches)[sorted_indices]
         
         return intervals_arr, pitches_arr
+        
+    # [디버그용 임시 코드] GT와 Pred의 첫 10개 노트 MIDI 값 직접 비교    
+    def debug_octave_shift(ref_intervals, ref_pitches, est_intervals, est_pitches):
+        print("\n--- 🔍 [DEBUG] MIDI Pitch Comparison (First 10 notes) ---")
+    
+        # Hz를 MIDI 번호로 변환하여 출력 (mir_eval은 기본적으로 Hz를 사용하므로)
+        ref_midi = np.round(librosa.hz_to_midi(ref_pitches[:10])) if len(ref_pitches) > 0 else []
+        est_midi = np.round(librosa.hz_to_midi(est_pitches[:10])) if len(est_pitches) > 0 else []
+        
+        print(f"✅ 정답 (GT) MIDI: {ref_midi}")
+        print(f"🤖 예측 (EST) MIDI: {est_midi}")
+    
+        if len(ref_midi) > 0 and len(est_midi) > 0:
+            diff = np.mean(est_midi[:min(len(ref_midi), len(est_midi))] - ref_midi[:min(len(ref_midi), len(est_midi))])
+            print(f"📊 평균 시프트(Shift): {diff:.2f} semitones")
+        
+            if diff > 10: print("⚠️ 진단: 모델이 GT보다 1옥타브 높게 예측 중입니다 (+12). (Harmonic Lock-on 의심)")
+            elif diff < -10: print("⚠️ 진단: 모델이 GT보다 1옥타브 낮게 예측 중입니다 (-12). (VSTi Transposition 의심)")
+        print("----------------------------------------------------------\n")
+     
 
+    
     @staticmethod
     def _events_to_mir_eval(events: List[NoteEvent], use_quantized: bool = False):
         intervals, pitches = [], []
