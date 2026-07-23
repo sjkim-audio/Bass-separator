@@ -86,7 +86,9 @@ def run_separation_evaluation(ref_path: str, est_path: str, align: bool = True) 
         traceback.print_exc()
         return {}
 
+
 class TranscriptionEvaluator:
+    
     @staticmethod
     def load_midi_to_mir_eval(midi_path: str):
         pm = pretty_midi.PrettyMIDI(midi_path)
@@ -141,28 +143,28 @@ class TranscriptionEvaluator:
         pitches_arr = np.array(final_pitches)[sorted_indices]
         
         return intervals_arr, pitches_arr
-        
-    # [디버그용 임시 코드] GT와 Pred의 첫 10개 노트 MIDI 값 직접 비교    
+
+    # [디버그용 임시 코드] 정적 메서드로 명확히 분리
+    @staticmethod
     def debug_octave_shift(ref_intervals, ref_pitches, est_intervals, est_pitches):
         print("\n--- 🔍 [DEBUG] MIDI Pitch Comparison (First 10 notes) ---")
-    
-        # Hz를 MIDI 번호로 변환하여 출력 (mir_eval은 기본적으로 Hz를 사용하므로)
+        
         ref_midi = np.round(librosa.hz_to_midi(ref_pitches[:10])) if len(ref_pitches) > 0 else []
         est_midi = np.round(librosa.hz_to_midi(est_pitches[:10])) if len(est_pitches) > 0 else []
         
         print(f"✅ 정답 (GT) MIDI: {ref_midi}")
         print(f"🤖 예측 (EST) MIDI: {est_midi}")
-    
+        
         if len(ref_midi) > 0 and len(est_midi) > 0:
             diff = np.mean(est_midi[:min(len(ref_midi), len(est_midi))] - ref_midi[:min(len(ref_midi), len(est_midi))])
             print(f"📊 평균 시프트(Shift): {diff:.2f} semitones")
-        
-            if diff > 10: print("⚠️ 진단: 모델이 GT보다 1옥타브 높게 예측 중입니다 (+12). (Harmonic Lock-on 의심)")
-            elif diff < -10: print("⚠️ 진단: 모델이 GT보다 1옥타브 낮게 예측 중입니다 (-12). (VSTi Transposition 의심)")
+            
+            if diff > 10: 
+                print("⚠️ 진단: 모델이 GT보다 1옥타브 높게 예측 중입니다 (+12). (Harmonic Lock-on 의심)")
+            elif diff < -10: 
+                print("⚠️ 진단: 모델이 GT보다 1옥타브 낮게 예측 중입니다 (-12). (VSTi Transposition 의심)")
         print("----------------------------------------------------------\n")
-     
 
-    
     @staticmethod
     def _events_to_mir_eval(events: List[NoteEvent], use_quantized: bool = False):
         intervals, pitches = [], []
@@ -218,6 +220,10 @@ class TranscriptionEvaluator:
         elif len(ref_intervals) == 0 or len(est_intervals) == 0:
              return empty_schema.copy()
 
+        # 🚨 [추가] mir_eval 채점 직전에 디버그 함수 호출 (raw 모드일 때만 1회 출력되도록 제어)
+        if not test_quantized:
+            TranscriptionEvaluator.debug_octave_shift(ref_intervals, ref_pitches, est_intervals, est_pitches)
+
         # 1. 원본 엄격 평가 (기존 로직)
         scores = mir_eval.transcription.evaluate(
             ref_intervals, ref_pitches, est_intervals, est_pitches,
@@ -258,7 +264,6 @@ class TranscriptionEvaluator:
             "Strict_Recall": round(scores.get('Recall', 0.0), 4),
             "Strict_F1": round(scores.get('F-measure', 0.0), 4)
         }
-
 
 async def run_transcription_evaluation(ref_midi_path: str, audio_path: str, is_isolated: bool = False, onset_tolerance: float = 0.1, ref_audio_path: str = None) -> dict:
     print(f"🎵 [Transcription] Processing Audio: {os.path.basename(audio_path)}")
