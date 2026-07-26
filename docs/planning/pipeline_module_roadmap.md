@@ -73,6 +73,8 @@
             ├─► Chroma F1 >= 80% (목표)                           ├─► Chroma F1 Gap <= 5% (목표)
             └─► Octave Error <= 15% (목표)                         └─► SDR >= 8.0 dB (목표)
 
+```
+
 ---
 
 | 검증 단계 | 대상 모듈 | 주요 평가 지표 (Metrics) | 기존 Baseline (참고치) | 채택 (Pass) 판정 기준 |
