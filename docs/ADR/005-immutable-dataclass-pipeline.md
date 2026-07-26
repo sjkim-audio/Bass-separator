@@ -20,6 +20,7 @@
 1. **`frozen=True` Dataclass 도입:** 데이터의 단일 진실 공급원(SSOT)으로서 `src/models/events.py`에 `NoteEvent` 데이터 클래스를 정의하고 상태 변경을 제한(Lock)한다.
 2. **`update()` 메서드 패턴 (Immutable Replacement):** 파이프라인 진행 중 값이 할당되거나 변경되어야 할 경우(예: Viterbi의 `fret` 할당, Quantizer의 `grid_index` 할당), 기존 객체를 직접 수정하지 않고 파이썬의 `dataclasses.replace`를 활용하여 **변경된 값을 반영한 새로운 복제 객체를 반환**하도록 한다.
 3. **List 누적 및 얕은 복사(Shallow Copy):** `dict` 키 기반의 데이터 관리 로직을 폐기하고, 모든 이벤트를 `List[NoteEvent]` 형태로 순차적으로 누적한다. 모듈 내부에서 리스트 조작이 필요할 때는 `events.copy()`로 얕은 복사를 수행한 뒤, 필요한 인덱스에 `update()`된 새 객체를 대체 삽입하여 원본 리스트의 무결성을 유지하려 시도한다.
+4. 4. **God Object의 해체 및 단일 책임 원칙(SRP) 적용:** 기존 `BassTabGenerator`가 중앙에서 독점하던 파이프라인 제어권을 해체하고, DSP 분석(`tracker.py`, `parser.py`), 모델 추론(`fingering.py`), 시간 동기화(`quantization.py`), 그리고 뷰 렌더링(`renderers/`)으로 책임을 완전히 분산하여 모듈화를 달성한다.
 
 ## 3. Considered Options (검토된 대안들)
 
@@ -46,3 +47,4 @@
 * **Negative & Limitations:**
   * 상태를 갱신할 때마다(`update()` 호출 시) 기존 객체는 가비지 컬렉터(GC) 대상이 되고 새로운 `NoteEvent` 객체가 할당되므로, 이전 구조 대비 객체 생성 오버헤드(Instantiation Overhead)가 증가한다.
   * **현재 판단:** 본 파이프라인의 전체 소요 시간 중 대부분은 딥러닝(CREPE, Demucs) 추론이 차지하고 있다. 파이썬 레벨의 데이터 클래스 재생성 오버헤드는 전체 Latency에 미치는 영향이 미미한 수준으로 관찰되어, 현재의 시스템 안정성을 우선하는 결정으로 수용한다. 단, 향후 극단적인 고속 처리가 요구될 경우 메모리 프로파일링을 통한 재검토가 필요할 수 있다.
+* **Anti-Pattern Resolution:** 초기 프로토타입에서 음향 데이터 변환과 View 렌더링을 동시에 수행하던 `src/transcription/tab_generator.py`(God Object)를 폐기함. 모델 처리(Fingering/Quantization)와 렌더링(Tab/MIDI Renderer) 영역을 디렉토리 수준(`src/transcription/` vs `src/renderers/`)에서 완전히 분리하여 모듈 간 결합도를 최저 수준으로 낮춤.
