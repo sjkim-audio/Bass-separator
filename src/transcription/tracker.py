@@ -6,42 +6,63 @@ import torch
 import torchcrepe
 import gc # 가비지 컬렉터 추가
 
-# window_size 파라미터 기본값을 31로 변경
-def clean_octave_errors_smart(f0_array, onset_mask, window_size=31, onset_tolerance=4):
+def clean_octave_errors_smart(f0_array, onset_mask, **kwargs):
+    """
+    온셋(Onset) 경계를 기준으로 시계열 데이터를 독립 조각(Segment)으로 분할한 뒤,
+    각 조각의 중앙값(진짜 기음)을 기준으로 배음 에러(옥타브 도약)를 격리하여 평탄화합니다.
+    """
     f0_clean = f0_array.copy()
     mask = (f0_clean > 0) & (~np.isnan(f0_clean))
+    
     if np.sum(mask) == 0:
         return f0_clean
         
-    midi_notes = np.zeros_like(f0_clean)
+    midi_notes = np.full_like(f0_clean, np.nan)
+    # 정수 반올림을 하지 않고 소수점을 보존하여 원본의 미세 튜닝(Micro-timing/Vibrato)을 지킵니다.
     midi_notes[mask] = librosa.hz_to_midi(f0_clean[mask])
     
-    midi_series = pd.Series(midi_notes)
-    trend = midi_series.where(mask).rolling(window=window_size, center=True, min_periods=1).median().values
+    # Onset을 기준으로 파티션 경계(Boundaries) 생성
+    onset_indices = np.where(onset_mask)[0]
     
-    indices = np.where(mask)[0]
-    for i in indices:
-        if np.isnan(trend[i]): continue
-        diff = midi_notes[i] - trend[i]
+    if len(onset_indices) == 0:
+        onset_indices = np.array([0])
+    elif onset_indices[0] != 0:
+        onset_indices = np.insert(onset_indices, 0, 0)
         
-        # [Fix] -2 옥타브(-26 ~ -22) 하강 복구 조건 누락 추가
-        is_octave_jump = (10 <= diff <= 14) or (22 <= diff <= 26) or (-14 <= diff <= -10) or (-26 <= diff <= -22)
+    boundaries = np.append(onset_indices, len(f0_clean))
+    
+    for i in range(len(boundaries) - 1):
+        start_idx = boundaries[i]
+        end_idx = boundaries[i+1]
         
-        if is_octave_jump:
-            start_idx = max(0, i - onset_tolerance)
-            end_idx = min(len(onset_mask), i + onset_tolerance + 1)
-            is_intentional_attack = np.any(onset_mask[start_idx:end_idx])
+        segment_mask = mask[start_idx:end_idx]
+        if np.sum(segment_mask) == 0:
+            continue
             
-            if not is_intentional_attack:
-                if 10 <= diff <= 14:
-                    midi_notes[i] -= 12
-                elif 22 <= diff <= 26:
-                    midi_notes[i] -= 24
-                elif -14 <= diff <= -10:
-                    midi_notes[i] += 12
-                elif -26 <= diff <= -22: # [Fix] -2 옥타브 복원 분기 추가
-                    midi_notes[i] += 24
-
+        segment_midi = midi_notes[start_idx:end_idx]
+        valid_midi = segment_midi[segment_mask]
+        
+        # 해당 타현 조각의 굳건한 중앙값 산출 (이상치 완벽 무시)
+        segment_median = np.median(valid_midi)
+        
+        # 조각 내부의 옥타브 스파이크만 선별하여 보정
+        for j in range(end_idx - start_idx):
+            if not segment_mask[j]:
+                continue
+            
+            diff = segment_midi[j] - segment_median
+            
+            if 10.0 <= diff <= 14.0:
+                segment_midi[j] -= 12.0
+            elif 22.0 <= diff <= 26.0:
+                segment_midi[j] -= 24.0
+            elif -14.0 <= diff <= -10.0:
+                segment_midi[j] += 12.0
+            elif -26.0 <= diff <= -22.0:
+                segment_midi[j] += 24.0
+                
+        midi_notes[start_idx:end_idx] = segment_midi
+        
     f0_clean[mask] = librosa.midi_to_hz(midi_notes[mask])
     return f0_clean
 
