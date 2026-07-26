@@ -202,6 +202,11 @@ class TranscriptionEvaluator:
     @staticmethod
     def evaluate(ref_midi_path: str, est_events: List[NoteEvent], test_quantized: bool = False, onset_tolerance: float = 0.1) -> Dict[str, float]:
         ref_intervals, ref_pitches = TranscriptionEvaluator.load_midi_to_mir_eval(ref_midi_path)
+        # Slakh GT가 1옥타브 높게 기보된 것을 물리적 주파수로 정규화
+        # 주파수(Hz)를 절반(/2.0)으로 나누어 정확히 1옥타브(-12 반음) 하강시킴
+        if len(ref_pitches) > 0:
+            ref_pitches = ref_pitches / 2.0
+        
         est_intervals, est_pitches = TranscriptionEvaluator._events_to_mir_eval(est_events, use_quantized=test_quantized)
         
         # 예외 상황에서도 스키마 무결성을 보장하기 위한 템플릿
