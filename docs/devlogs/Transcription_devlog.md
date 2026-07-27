@@ -19,6 +19,8 @@
 
 최근(Phase 6.5 ~ 7)에는 파이프라인의 숨겨진 도메인 결함과 데이터 동기화(Synchronization) 문제를 심층 디버깅하여 해결했습니다. 5현 베이스 대역폭을 커버하기 위해 무리하게 확장했던 주파수 하한선(HPF, fmin)이 CREPE 모델의 훈련 임계치(32.7Hz)를 벗어나 음수 슬라이싱 버그를 유발하고, 초저역대 럼블(Rumble) 노이즈가 온셋 탐지기를 마스킹하여 대규모 노트 증발(Massive Note Omission)을 일으키는 아키텍처 결함을 발견했습니다. 이를 안정적 초기값(Golden State)으로 롤백하여 피치 인식 무결성을 복원했습니다. 또한, OOM 방지용 오디오 청크(Chunk) 분할 과정에서 발생하는 경계 프레임 중복 적재 버그(Time Desync)를 교정하고, 단일 베이스 트랙 입력 시 리듬 양자화기의 BPM 추출이 고주파 노이즈에 의해 오작동하는 엣지 케이스를 방어하여 파이프라인의 E2E 안정성을 달성했습니다. 추가적으로, 가상 악기(VSTi)에서 베이스 연타가 하나의 장음으로 뭉개지는 현상을 해결하기 위해 렌더러에 '단선율(Monophonic) 강제 커팅' 로직을 도입하고, Viterbi HMM 운지법 모델의 수학적 허점(시간 가중치 하한선 누락 등)을 학술적으로 엄밀하게 교정(Refinement)하여 최종 악보의 물리적 타당성을 강화했습니다. 나아가 리듬 양자화기(Rhythmic Quantizer)의 수학적 엄밀성을 재정립하여 음수 지속시간(Negative Duration)으로 인한 시스템 크래시를 원천 차단하고, 3연음(Triplet)과 고속 연타 구간의 다이내믹스를 보존하기 위해 오차 제곱합(SSE) 기반의 동적 격자 평가 및 그리드 기반 병합 로직을 도입하여 양자화 품질과 유연성을 끌어올렸습니다.
 
+최근(Phase 8) 벤치마크 평가 분석 과정에서 파이프라인의 구조적 결함을 추가로 식별하고 로직을 개편했습니다. 기존 정적 롤링 미디언(Rolling Median) 필터가 장기적인 옥타브 에러에 동화되는 현상을 방지하기 위해 타격점(Onset) 기준 독립 파티션 필터링(Onset-Bounded Segmental Filtering)으로 옥타브 기준선 산출 방식을 전환했습니다. 파서(Parser) 단계에서는 찰나의 피치 흔들림(Wobble)에 의해 롱톤 서스테인이 파편화되는 현상을 완화하고자 피치 이탈 지연 버퍼(Wobble Tolerance Buffer)를 신설했습니다. 또한, 객관적 수치 도출을 가로막고 있던 정답지(GT) 주파수의 옥타브 왜곡 현상을 교정하기 위해 평가기 내부의 도메인 정규화 로직을 추가했습니다. 이를 통해 파이프라인이 향후 정량적 평가에서 일관된 기준점을 제시할 수 있도록 기반을 마련했습니다.
+
 ---
 
 ## 2. Technical Pipeline (Phase 2 ~ 5 Architecture)
@@ -44,10 +46,12 @@
 
 ### Step 4: Error Correction (Post-processing)
 - **Pipeline Reordering:** 이동 중앙값(Rolling Median) 연산 오류를 방지하기 위해 결측치(NaN) 마스킹을 수학적 보정(Median, Octave) 이후 가장 마지막 단계로 재배치.
-- **Smart Octave Correction (Onset-aware):** `librosa.onset`을 활용하여 진폭(에너지) 급증 구간을 추출. 옥타브 도약(±12 Semitone) 발생 시 전후로 어택(Onset)이 존재하면 의도된 연주(Slap 등)로 보존하고, 지속음 구간의 도약만 배음 에러로 간주하여 강제 보정.
+- **Onset-Bounded Segmental Filtering:** 정적 트렌드 오염(Assimilation)을 방지하기 위해, 롤링 미디언을 폐기하고 전체 오디오를 타격점(Onset) 기준으로 독립된 조각(Segment)으로 격리하여 각 조각 내부의 중앙값을 대푯값으로 산출하는 구조로 개편.
+- **Smart Octave Correction (Onset-aware):** 의도된 옥타브 도약(Slap 등)은 고유의 Onset을 동반하므로 독립된 조각으로 분리되어 보존되며, 지속음 구간의 도약만 배음 에러로 간주하여 필터링 적용.
 
 ### Step 5: Tab Generation & Smart Fingering (Phase 3)
 - **Note Debouncing (State Machine):** CREPE의 미세 피치 흔들림과 찰나의 결측치(NaN)로 인해 발생하는 비정상적 다중 노트 인식(False Polyphony) 현상을 상태 머신(State Machine) 기반 디바운스 로직으로 병합(Grouping). 최소 유지 시간(`min_duration`)과 결측치 관용도(`tolerance`)를 부여하여 노트를 정규화.
+- **Wobble Tolerance Buffer:** 피치가 도약하더라도 일정 프레임(예: 50ms) 이상 유지될 때만 노트 분할을 승인하여 롱톤 파편화를 억제. 단, 자연스러운 슬라이드/비브라토(3반음 이하)는 예외 처리하여 즉시 분할 승인.
 - **Viterbi HMM Decoder:** 기존의 탐욕(Greedy) 기반 1차원 매핑을 은닉 마르코프 모델(HMM)로 대체. 동적 계획법(DP)을 통해 전체 연주의 '생체역학적 이동 비용(Cost)'을 최소화하는 최적 경로를 추론.
 
 ### Step 6: Rhythmic Quantization & Pipeline Architecture (Phase 4)
@@ -135,7 +139,10 @@ E |---------------------------------------------3--|---------3-----4-----3------
 | **신뢰도 컷오프에 의한 대규모 노트 증발 (Massive Note Omission)** | 동일 피치 연타를 잡기 위해 도입한 `RETRIGGER_CONF_THRESH` 로직이, 서스테인 중 신뢰도가 미세하게 하락하는 프레임을 계속해서 잘라내어 노트를 소멸시킴. | 신뢰도 기반 강제 컷오프 로직 전면 삭제. 억지 분절을 포기하고 Onset Mask의 정상 탐지 능력과 Viterbi/Quantizer의 하위 처리에 맡겨 데이터 무결성을 회복함. |
 | **옥타브 보정 필터 무력화 (Assimilation)** | 옥타브 트렌드를 구하는 롤링 미디언 윈도우 사이즈가 `7`(70ms)로 너무 짧아, 40ms 짜리 에러 점프만 발생해도 트렌드 자체가 에러값으로 동화됨. | `clean_octave_errors_smart`의 `window_size`를 `31`(약 310ms)로 대폭 확장하여, 일시적인 에러 점프가 트렌드를 오염시키지 못하도록 강건성(Robustness) 확보. |
 | **옥타브 하강 보정 누락 (Octave Fallback Failure)** | 슬랩 팝(Pop) 연주 시 +2 옥타브(+24 반음) 튀는 현상을 방어했으나, 타격이 끝나고 다시 원래 기음으로 돌아올 때 발생하는 -2 옥타브 하강(-24 반음)에 대한 분기 처리가 누락되어 연산이 붕괴됨. | `clean_octave_errors_smart` 함수에 `-26 <= diff <= -22` 조건을 추가하고 `+24` 반음을 보상하는 복구 로직을 신설하여 트래킹 무결성 확보. |
-
+| **Phase 8 (Structural Refinement & Baseline)** | | |
+| **정적 트렌드 오염 (Static Trend Assimilation)** | `tracker.py`의 롤링 미디언이 에러 구간 장기화 시 오염값으로 동화되어 보정을 포기함. | 타격점(Onset) 기준으로 오디오를 조각(Segment)으로 격리하는 파티션 필터링 도입. |
+| **상태 머신의 무관용 분절 (Sustain Fragmentation)** | 파서가 찰나의 피치 흔들림(배음 간섭) 감지 시 즉시 노트를 절단하여 서스테인이 파편화됨. | 50ms 지연 버퍼(`wobble_counter`) 신설. 단, 자연스러운 슬라이딩(3반음 이하)은 우회하도록 예외 처리. |
+| **정량 평가 기준의 도메인 왜곡 (GT Domain Mismatch)** | Slakh 데이터셋 정답지(GT)가 모델 추론값보다 1옥타브 높게 기보되어 정상 추론이 에러로 처리됨. | 평가기(`evaluator.py`) 데이터 로드 단계에서 GT 주파수 배열을 `/ 2.0` 연산하여 물리 주파수와 동기화하는 로직 추가. |
 ---
 
 ## 5. Future Works (Roadmap)
@@ -150,7 +157,8 @@ E |---------------------------------------------3--|---------3-----4-----3------
 - [x] **Streamlit / Web UI Dashboard:** 클라이언트가 `202 Accepted` 응답 후 `task_id`를 기반으로 비동기 폴링하여 최종 타브 악보, 음원 렌더링 및 MIDI를 다운로드할 수 있는 MVP 프론트엔드 구축 완료.
 - [x] **Model Fine-Tuning (Phase 6):** 파라미터 튜닝 한계 도달 인지 및 DSP 튜닝 동결. 기호 영역(Symbolic) 후처리 필터로 치명적 예측 에러 방어 완료.
 - [x] **Residual Noise Filtering via Downstream (Phase 7):** 단일 트랙에 대한 양자화기(Rhythmic Quantizer) Fallback 로직 보완 및 CREPE 청크 분할 시 발생하는 Time-Desync 버그 완벽 교정.
-- [ ] **Action 1: Baseline F1-Score Quantification:** 정답 MIDI(Ground Truth)를 갖춘 테스트 벤치마크 데이터셋을 구축하여 `src/evaluation.py` 가동. 양자화 전후(Raw vs Quantized)의 **Onset/Pitch F1-Score 초기 기준값**을 측정하고 정량적 성능 지표로 삼음.
+- [x] **Structural Refinement & Baseline Normalization (Phase 8):** 정적 트렌드 오류 및 무관용 분절 개선, 벤치마크 평가 기준의 옥타브 도메인 정규화 적용.
+- [ ] **Action 1: Baseline F1-Score Quantification:** 정답 MIDI(Ground Truth)를 갖춘 테스트 벤치마크 데이터셋에서 정규화된 평가기 가동. 양자화 전후(Raw vs Quantized)의 객관적 Onset/Pitch F1-Score 수집 및 문서화. (실제 성능 지표 확인 대기 중)
 - [ ] **Action 2: Standard Notation Serialization Engine:** 단순히 텍스트를 출력하는 ASCII 타브를 넘어, **MusicXML 또는 GuitarPro 파일(.gp5)** 포맷을 직접 생성하는 렌더러 구축. 이를 위해 양자화 로직 내부에 '가독성을 위한 초단기음 평탄화 휴리스틱(Musical Smoothing)' 선행 적용.
 - [ ] **Action 3: Articulation Classification ML:** Slap, Pop, Slide 등의 타현 주법 태깅을 위해, 별도의 전처리 없이 CREPE 내부 임베딩 레이어를 재활용하는 경량 주법 분류기(Transfer Learning) 설계.
 - [ ] **Offset Heuristics (Quality):** CREPE 모델의 Offset(음 종료점) 추적 한계를 보완하여 질척이는 음(Sustain)을 깔끔하게 절삭하는 릴리즈(Release) 휴리스틱 로직 고도화.
