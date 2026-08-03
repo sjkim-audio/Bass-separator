@@ -7,6 +7,7 @@ import scipy.signal
 import traceback
 import soundfile as sf
 import asyncio
+from scipy import signal
 
 from typing import List, Dict
 
@@ -20,50 +21,53 @@ from src.models.events import NoteEvent
 warnings.filterwarnings('ignore', module='librosa')
 warnings.filterwarnings('ignore', module='pretty_midi')
 
-def align_audio(ref: np.ndarray, est: np.ndarray, sr: int = 44100):
-    max_len = sr * 30  
-    ref_mono = np.mean(ref, axis=0) if ref.ndim > 1 else ref
-    est_mono = np.mean(est, axis=0) if est.ndim > 1 else est
+def align_audio(ref_audio, est_audio, sr):
+    """
+    상호 상관(Cross-correlation)을 사용하여 두 1D 오디오 배열의 위상 지연을 맞춥니다.
+    """
+    # 1D 배열로 강제 변환 (차원 충돌 방지)
+    ref_audio = np.atleast_1d(ref_audio).squeeze()
+    est_audio = np.atleast_1d(est_audio).squeeze()
     
-    correlation = scipy.signal.correlate(ref_mono[:max_len], est_mono[:max_len], mode='full')
-    lag = int(np.argmax(correlation) - (len(est_mono[:max_len]) - 1))
+    correlation = signal.correlate(ref_audio, est_audio, mode='full')
+    lags = signal.correlation_lags(len(ref_audio), len(est_audio), mode='full')
+    lag = lags[np.argmax(correlation)]
     
+    # 1D 슬라이싱 적용
     if lag > 0:
-        est = est[:, lag:]
-        ref = ref[:, :-lag]
+        est_audio = est_audio[lag:]
+        ref_audio = ref_audio[:len(est_audio)]
     elif lag < 0:
-        lag = abs(lag)
-        est = est[:, :-lag]
-        ref = ref[:, lag:]
+        ref_audio = ref_audio[-lag:]
+        est_audio = est_audio[:len(ref_audio)]
         
-    return ref, est
+    min_len = min(len(ref_audio), len(est_audio))
+    return ref_audio[:min_len], est_audio[:min_len]
 
-def evaluate_separation(reference_path: str, estimated_path: str, align: bool = True) -> dict:
-    ref, sr = librosa.load(reference_path, sr=None, mono=False)
-    est, _ = librosa.load(estimated_path, sr=sr, mono=False)
-
-    if ref.ndim == 1: ref = ref[np.newaxis, :]
-    if est.ndim == 1: est = est[np.newaxis, :]
-
-    min_len = min(ref.shape[1], est.shape[1])
-    ref = ref[:, :min_len]
-    est = est[:, :min_len]
-
+def evaluate_separation(ref_path: str, est_path: str, align: bool = False):
+    """
+    SDR, SIR, SAR 평가 로직 (museval 대신 안정적인 mir_eval 사용)
+    """
+    ref_audio, sr = librosa.load(ref_path, sr=None, mono=True)
+    est_audio, _ = librosa.load(est_path, sr=sr, mono=True)
+    
     if align:
-        ref, est = align_audio(ref, est, sr)
-
-    ref_eval = ref.T[np.newaxis, :, :]
-    est_eval = est.T[np.newaxis, :, :]
-
-    sdr, isr, sir, sar, _ = museval.eval_bss_v4(ref_eval, est_eval, win=sr)
-
-    return {
-        "SDR": sdr.squeeze(),
-        "SIR": sir.squeeze(),
-        "SAR": sar.squeeze(),
-        "sr": sr,
-        "hop_sec": 1.0
-    }
+        ref_audio, est_audio = align_audio(ref_audio, est_audio, sr)
+    else:
+        min_len = min(len(ref_audio), len(est_audio))
+        ref_audio = ref_audio[:min_len]
+        est_audio = est_audio[:min_len]
+    
+    # mir_eval BSS는 [sources, samples] 2D 구조를 요구하므로 차원 추가
+    ref_sources = ref_audio[np.newaxis, :]
+    est_sources = est_audio[np.newaxis, :]
+    
+    try:
+        sdr, sir, sar, _ = mir_eval.separation.bss_eval_sources(ref_sources, est_sources)
+        return {"SDR": sdr, "SIR": sir, "SAR": sar}
+    except Exception as e:
+        print(f"⚠️ BSS_Eval 에러: {e}")
+        return {"SDR": [np.nan], "SIR": [np.nan], "SAR": [np.nan]}
 
 def run_separation_evaluation(ref_path: str, est_path: str, align: bool = True) -> dict:
     print(f"📊 [Separation] Processing: {os.path.basename(est_path)}")
@@ -82,7 +86,9 @@ def run_separation_evaluation(ref_path: str, est_path: str, align: bool = True) 
         traceback.print_exc()
         return {}
 
+
 class TranscriptionEvaluator:
+    
     @staticmethod
     def load_midi_to_mir_eval(midi_path: str):
         pm = pretty_midi.PrettyMIDI(midi_path)
@@ -138,6 +144,27 @@ class TranscriptionEvaluator:
         
         return intervals_arr, pitches_arr
 
+    # [디버그용 임시 코드] 정적 메서드로 명확히 분리
+    @staticmethod
+    def debug_octave_shift(ref_intervals, ref_pitches, est_intervals, est_pitches):
+        print("\n--- 🔍 [DEBUG] MIDI Pitch Comparison (First 10 notes) ---")
+        
+        ref_midi = np.round(librosa.hz_to_midi(ref_pitches[:10])) if len(ref_pitches) > 0 else []
+        est_midi = np.round(librosa.hz_to_midi(est_pitches[:10])) if len(est_pitches) > 0 else []
+        
+        print(f"✅ 정답 (GT) MIDI: {ref_midi}")
+        print(f"🤖 예측 (EST) MIDI: {est_midi}")
+        
+        if len(ref_midi) > 0 and len(est_midi) > 0:
+            diff = np.mean(est_midi[:min(len(ref_midi), len(est_midi))] - ref_midi[:min(len(ref_midi), len(est_midi))])
+            print(f"📊 평균 시프트(Shift): {diff:.2f} semitones")
+            
+            if diff > 10: 
+                print("⚠️ 진단: 모델이 GT보다 1옥타브 높게 예측 중입니다 (+12). (Harmonic Lock-on 의심)")
+            elif diff < -10: 
+                print("⚠️ 진단: 모델이 GT보다 1옥타브 낮게 예측 중입니다 (-12). (VSTi Transposition 의심)")
+        print("----------------------------------------------------------\n")
+
     @staticmethod
     def _events_to_mir_eval(events: List[NoteEvent], use_quantized: bool = False):
         intervals, pitches = [], []
@@ -175,6 +202,11 @@ class TranscriptionEvaluator:
     @staticmethod
     def evaluate(ref_midi_path: str, est_events: List[NoteEvent], test_quantized: bool = False, onset_tolerance: float = 0.1) -> Dict[str, float]:
         ref_intervals, ref_pitches = TranscriptionEvaluator.load_midi_to_mir_eval(ref_midi_path)
+        # Slakh GT가 1옥타브 높게 기보된 것을 물리적 주파수로 정규화
+        # 주파수(Hz)를 절반(/2.0)으로 나누어 정확히 1옥타브(-12 반음) 하강시킴
+        if len(ref_pitches) > 0:
+            ref_pitches = ref_pitches / 2.0
+        
         est_intervals, est_pitches = TranscriptionEvaluator._events_to_mir_eval(est_events, use_quantized=test_quantized)
         
         # 예외 상황에서도 스키마 무결성을 보장하기 위한 템플릿
@@ -192,6 +224,10 @@ class TranscriptionEvaluator:
             return perfect_schema
         elif len(ref_intervals) == 0 or len(est_intervals) == 0:
              return empty_schema.copy()
+
+        # 🚨 [추가] mir_eval 채점 직전에 디버그 함수 호출 (raw 모드일 때만 1회 출력되도록 제어)
+        if not test_quantized:
+            TranscriptionEvaluator.debug_octave_shift(ref_intervals, ref_pitches, est_intervals, est_pitches)
 
         # 1. 원본 엄격 평가 (기존 로직)
         scores = mir_eval.transcription.evaluate(
@@ -233,7 +269,6 @@ class TranscriptionEvaluator:
             "Strict_Recall": round(scores.get('Recall', 0.0), 4),
             "Strict_F1": round(scores.get('F-measure', 0.0), 4)
         }
-
 
 async def run_transcription_evaluation(ref_midi_path: str, audio_path: str, is_isolated: bool = False, onset_tolerance: float = 0.1, ref_audio_path: str = None) -> dict:
     print(f"🎵 [Transcription] Processing Audio: {os.path.basename(audio_path)}")

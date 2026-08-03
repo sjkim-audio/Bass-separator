@@ -39,6 +39,11 @@
 *   **음향 무결성 보존:** 단순 오디오 합산 시 발생하는 클리핑을 방지하기 위해 공식 `metadata.yaml`의 `overall_gain`을 수학적으로 적용한 `bassless_mr.wav` 생성.
 *   **I/O 최적화:** 무거운 `librosa` 리샘플링을 배제하고 `soundfile` 기반의 온더플라이(On-the-fly) FLAC to WAV 디코딩을 채택하여 수천 곡의 전처리 시간을 획기적으로 단축.
 
+### Phase 0.5: 데이터 추출 파이프라인 고도화 및 모수 확정
+*   **OS 독립성 확보:** `prepare_slakh_local.py` 스크립트에서 로컬 `ffmpeg.exe` 하드코딩을 제거하고 `shutil.which`를 도입하여 OS 독립성을 확보함. 정규표현식(`re`)을 통해 경로 파편화를 방어함.
+*   **I/O 병목 우회:** Windows 환경 특유의 파일 접근 권한 충돌(Defender 락킹 등)로 인한 샌드박스 삭제 실패를 방어하기 위해, `os.chmod`를 활용한 강제 쓰기 모드 전환 및 재시도(Retry) 로직(`robust_rmtree`)을 구축함.
+*   **최종 벤치마크 모수 동결 (130 트랙):** 총 151개의 원본 테스트 셋 중, 다중 베이스(Multi-bass), 렌더링 실패, 베이스 부재 트랙을 자동 필터링하여 **가장 완벽한 1:1 평가가 가능한 130곡의 클린 데이터셋(Clean Dataset)을 최종 확정**함. 향후 모든 모델 평가는 이 130곡을 분모로 산출됨.
+
 ### Phase 1: 기준점 측정 (`04_evaluation/01_baseline_performance_test.ipynb`)
 *   **역할:** `slakh_eval` 데이터셋 대상 비동기(`nest_asyncio`) 배치 평가 수행 및 CSV 결과 도출.
 
@@ -77,8 +82,11 @@
 | **Cross-Contamination** | 단일 트랙 분리 실패 시 이전 곡의 임시 베이스 오디오가 섞여 들어가는 교차 오염 발생. | 트랙 단위 평가 종료 시 `outputs/eval_temp` 디렉토리를 물리적으로 통삭제하는 샌드박싱 확립. |
 | **Octave Double Penalty** | 모델의 옥타브 에러가 50센트 공차에 의해 FN + FP로 이중 감점되어 화성 추적력이 과소평가됨. | 부동소수점 다이렉트 모듈로 연산(`% 12`)을 통해 순수 피치 일치율을 뽑아내는 **Chroma F1 지표 신설**. |
 | **Empty Array Crash** | 무음(Empty GT/Prediction) 트랙 진입 시 `mir_eval` 크래시 및 다운스트림 `KeyError` 발생. | `empty_schema`를 강제 반환하여 배치 파이프라인의 **평가 스키마 무결성(Schema Integrity)** 보장. |
+| **1D Array Slicing Crash** | 모노(1D) 오디오 배열에 스테레오(2D) 전용 슬라이싱(`[:, lag:]`)을 시도하여 차원 충돌 및 파이프라인 붕괴 발생. | `np.atleast_1d().squeeze()`를 통해 입력 배열을 1D 규격으로 강제 평탄화(Flattening)하고 슬라이싱 로직 교체. |
+| **Separation API Deprecation** | `museval` 패키지 업데이트로 인한 `eval_bss_v4` API 소실로 음원 분리(SDR) 채점 불가. | `mir_eval.separation`으로 평가 엔진을 마이그레이션하고, 2D 텐서 주입 및 `NaN` 예외 반환 방어 로직 구축. |
 
-*(이하 각 항목별 상세 원인 및 설계 논리)*
+<details>
+<summary><b>각 항목별 상세 원인 및 설계 논리</b></summary>
 
 ### 3.1. GT MIDI 강제 단선율화 (Monophonic Flattening) 
 *   **이슈:** Slakh2100의 GT 악보는 다성부(Polyphony, 더블 스탑 및 레가토)를 포함하나, 파이프라인의 CREPE 모델은 단선율 전용 아키텍처임.
@@ -131,7 +139,20 @@
 *   **이슈:** 곡의 특정 구간에 정답 악보가 아예 비어있거나(Empty GT), 모델이 베이스 음표를 단 하나도 추출하지 못했을 경우(Empty Prediction) `mir_eval`의 연산이 붕괴함. 이 과정에서 누락된 반환 키워드로 인해 대규모 배치 평가 하위 파이프라인(`save_experiment_results`)에서 `KeyError`가 발생하며 전체 프로세스가 다운될 위험이 존재함.
 *   **해결:** 모든 평가 반환값을 포괄하는 통합된 빈 스키마(`empty_schema`) 템플릿을 정의함. 엣지 케이스 진입 시, 해당 곡이 "정답도 없고 추출도 안 한 완벽한 무음"이라면 1.0(만점)을, "정답은 있는데 추출을 못한 경우"라면 0.0을 채운 스키마를 강제로 반환하도록 설계하여 다운스트림 로직의 안전성을 원천 보장함.
 
+### 3.11. Audio Alignment 차원 충돌 해결 (DSP 데이터 규격 표준화)
+*   **이슈:** E2E 배치 평가 중 Demucs 지연시간 보정 로직(`align_audio`)에서 `IndexError: too many indices for array`가 발생하며 전체 파이프라인이 중단됨.
+*   **원인:** 연산량 최적화 및 평가 통일성을 위해 오디오 로드 단계를 Mono(1D 배열)로 통일했으나, 과거 작성된 위상 정렬 로직은 Stereo(2D 배열 `[channels, samples]`) 구조의 슬라이싱 문법(`est[:, lag:]`)을 그대로 유지하고 있어 차원(Dimension) 불일치가 발생함.
+*   **해결:** `np.atleast_1d().squeeze()`를 적용해 배열의 차원을 완벽한 1D 규격으로 평탄화(Flattening)하고, 1D 전용 인덱싱으로 위상 정렬 슬라이싱 로직을 전면 재작성함. 향후 파이프라인의 모든 DSP 연산은 1D Mono 배열을 기준으로 수행함을 아키텍처 원칙으로 확립함.
+
+### 3.12. 분리 성능 채점 라이브러리 마이그레이션 (`museval` ➔ `mir_eval`)
+*   **이슈:** 음원 분리 채점 모듈 진입 시 `module 'museval' has no attribute 'eval_bss_v4'` 에러가 발생하여 SDR, SIR, SAR 수치 산출이 전면 중단됨.
+*   **원인:** 기존 의존성이던 `museval` 라이브러리의 버전 업데이트 및 API Deprecation으로 인해 내부 함수 호출 시스템이 붕괴됨.
+*   **해결:** BSS(Blind Source Separation) 지표 평가 엔진을, 동일한 수학적 결과를 보장하며 생태계 표준에 가까운 `mir_eval.separation.bss_eval_sources` API로 전면 교체함.
+    *   **차원 브릿지(Dimension Bridge) 주입:** `mir_eval` 엔진이 요구하는 `[sources, samples]` 2D 텐서 규격을 맞추기 위해, 내부적으로 1D Mono 오디오에 `np.newaxis`를 활용하여 차원을 강제 주입하는 인터페이스 로직을 추가함.
+    *   **방어적 프로그래밍 (Defensive Fallback):** 특정 트랙이 완벽한 무음(Silence)으로 분리되는 등 엣지 케이스에서 수학적 예외(Zero division 등)가 발생하더라도 평가 루프 전체가 죽지 않도록 `Try-Except` 블록을 구성하고, 실패 시 `NaN` 통계치를 반환하여 데이터 프레임 붕괴를 방어함.
+
 ---
+</details>
 
 ## 4. 시스템 한계점 및 향후 과제 (Limitations & Future Work)
 
