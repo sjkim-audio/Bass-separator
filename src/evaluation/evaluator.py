@@ -44,27 +44,36 @@ def align_audio(ref_audio, est_audio, sr):
     min_len = min(len(ref_audio), len(est_audio))
     return ref_audio[:min_len], est_audio[:min_len]
 
-def evaluate_separation(ref_path: str, est_path: str, align: bool = False):
+def evaluate_separation(mix_path: str, ref_path: str, est_path: str, align: bool = False):
     """
     SDR, SIR, SAR 평가 로직 (museval 대신 안정적인 mir_eval 사용)
+    * 버그 수정: Mix 오디오를 활용해 Bassless 신호를 합성하여 2채널 평가 수행
     """
-    ref_audio, sr = librosa.load(ref_path, sr=None, mono=True)
+    mix_audio, sr = librosa.load(mix_path, sr=None, mono=True)
+    ref_audio, _ = librosa.load(ref_path, sr=sr, mono=True)
     est_audio, _ = librosa.load(est_path, sr=sr, mono=True)
     
     if align:
         ref_audio, est_audio = align_audio(ref_audio, est_audio, sr)
-    else:
-        min_len = min(len(ref_audio), len(est_audio))
-        ref_audio = ref_audio[:min_len]
-        est_audio = est_audio[:min_len]
+        
+    # 샘플 길이 동기화
+    min_len = min(len(mix_audio), len(ref_audio), len(est_audio))
+    mix_audio = mix_audio[:min_len]
+    ref_audio = ref_audio[:min_len]
+    est_audio = est_audio[:min_len]
     
-    # mir_eval BSS는 [sources, samples] 2D 구조를 요구하므로 차원 추가
-    ref_sources = ref_audio[np.newaxis, :]
-    est_sources = est_audio[np.newaxis, :]
+    # Bassless(나머지 반주) 신호 계산: Mix - Bass
+    ref_bassless = mix_audio - ref_audio
+    est_bassless = mix_audio - est_audio
+    
+    # 2채널(Bass, Bassless) 매트릭스로 결합 (shape: 2 x N)
+    ref_sources = np.vstack([ref_audio, ref_bassless])
+    est_sources = np.vstack([est_audio, est_bassless])
     
     try:
         sdr, sir, sar, _ = mir_eval.separation.bss_eval_sources(ref_sources, est_sources)
-        return {"SDR": sdr, "SIR": sir, "SAR": sar}
+        # 타겟 음원인 Bass(인덱스 0)의 지표만 리스트로 감싸서 반환 (기존 하위 호환성 유지)
+        return {"SDR": [sdr[0]], "SIR": [sir[0]], "SAR": [sar[0]]}
     except Exception as e:
         print(f"⚠️ BSS_Eval 에러: {e}")
         return {"SDR": [np.nan], "SIR": [np.nan], "SAR": [np.nan]}
@@ -300,7 +309,7 @@ async def run_transcription_evaluation(ref_midi_path: str, audio_path: str, is_i
                 # 생성된(보정된) 베이스 파형에 대한 음원 분리 채점 실행
                 # ---------------------------------------------------------
                 try:
-                    sep_raw = evaluate_separation(ref_audio_path, bass_path, align=False)
+                    sep_raw = evaluate_separation(audio_path, ref_audio_path, bass_path, align=False)
                     separation_metrics = {
                         "SDR": float(np.nanmedian(sep_raw["SDR"])),
                         "SIR": float(np.nanmedian(sep_raw["SIR"])),
