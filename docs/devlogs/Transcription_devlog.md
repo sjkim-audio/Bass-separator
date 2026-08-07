@@ -19,7 +19,7 @@
 
 최근(Phase 6.5 ~ 7)에는 파이프라인의 숨겨진 도메인 결함과 데이터 동기화(Synchronization) 문제를 심층 디버깅하여 해결했습니다. 5현 베이스 대역폭을 커버하기 위해 무리하게 확장했던 주파수 하한선(HPF, fmin)이 CREPE 모델의 훈련 임계치(32.7Hz)를 벗어나 음수 슬라이싱 버그를 유발하고, 초저역대 럼블(Rumble) 노이즈가 온셋 탐지기를 마스킹하여 대규모 노트 증발(Massive Note Omission)을 일으키는 아키텍처 결함을 발견했습니다. 이를 안정적 초기값(Golden State)으로 롤백하여 피치 인식 무결성을 복원했습니다. 또한, OOM 방지용 오디오 청크(Chunk) 분할 과정에서 발생하는 경계 프레임 중복 적재 버그(Time Desync)를 교정하고, 단일 베이스 트랙 입력 시 리듬 양자화기의 BPM 추출이 고주파 노이즈에 의해 오작동하는 엣지 케이스를 방어하여 파이프라인의 E2E 안정성을 달성했습니다. 추가적으로, 가상 악기(VSTi)에서 베이스 연타가 하나의 장음으로 뭉개지는 현상을 해결하기 위해 렌더러에 '단선율(Monophonic) 강제 커팅' 로직을 도입하고, Viterbi HMM 운지법 모델의 수학적 허점(시간 가중치 하한선 누락 등)을 학술적으로 엄밀하게 교정(Refinement)하여 최종 악보의 물리적 타당성을 강화했습니다. 나아가 리듬 양자화기(Rhythmic Quantizer)의 수학적 엄밀성을 재정립하여 음수 지속시간(Negative Duration)으로 인한 시스템 크래시를 원천 차단하고, 3연음(Triplet)과 고속 연타 구간의 다이내믹스를 보존하기 위해 오차 제곱합(SSE) 기반의 동적 격자 평가 및 그리드 기반 병합 로직을 도입하여 양자화 품질과 유연성을 끌어올렸습니다.
 
-최근(Phase 8) 벤치마크 평가 분석 과정에서 파이프라인의 구조적 결함을 추가로 식별하고 로직을 개편했습니다. 기존 정적 롤링 미디언(Rolling Median) 필터가 장기적인 옥타브 에러에 동화되는 현상을 방지하기 위해 타격점(Onset) 기준 독립 파티션 필터링(Onset-Bounded Segmental Filtering)으로 옥타브 기준선 산출 방식을 전환했습니다. 파서(Parser) 단계에서는 찰나의 피치 흔들림(Wobble)에 의해 롱톤 서스테인이 파편화되는 현상을 완화하고자 피치 이탈 지연 버퍼(Wobble Tolerance Buffer)를 신설했습니다. 또한, 객관적 수치 도출을 가로막고 있던 정답지(GT) 주파수의 옥타브 왜곡 현상을 교정하기 위해 평가기 내부의 도메인 정규화 로직을 추가했습니다. 이를 통해 파이프라인이 향후 정량적 평가에서 일관된 기준점을 제시할 수 있도록 기반을 마련했습니다.
+최근(Phase 8) 벤치마크 평가 분석 과정에서 파이프라인의 구조적 결함을 추가로 식별하고 로직을 개편했습니다. 기존 정적 롤링 미디언(Rolling Median) 필터가 장기적인 옥타브 에러에 동화되는 현상을 방지하기 위해 타격점(Onset) 기준 독립 파티션 필터링(Onset-Bounded Segmental Filtering)으로 옥타브 기준선 산출 방식을 전환했습니다. 파서(Parser) 단계에서는 찰나의 피치 흔들림(Wobble)에 의해 롱톤 서스테인이 파편화되는 현상을 완화하고자 피치 이탈 지연 버퍼(Wobble Tolerance Buffer)를 신설했습니다. 또한, 객관적 수치 도출을 가로막고 있던 정답지(GT) 주파수의 옥타브 왜곡 현상을 교정하기 위해 평가기 내부의 도메인 정규화 로직을 추가했습니다. 이를 통해 파이프라인이 향후 정량적 평가에서 일관된 기준점을 제시할 수 있도록 기반을 마련했습니다. 또한 E2E 벤치마크 평가 중 관찰된 양자화 패널티(Quantization Penalty)의 원인 가설을 바탕으로, 허용 오차 기반의 선택적 스냅(Soft Quantization)과 시간차 기반 병합(Time-based Merging) 로직을 도입하여 시스템 아키텍처를 리팩토링하였습니다.
 
 ---
 
@@ -54,10 +54,10 @@
 - **Wobble Tolerance Buffer:** 피치가 도약하더라도 일정 프레임(예: 50ms) 이상 유지될 때만 노트 분할을 승인하여 롱톤 파편화를 억제. 단, 자연스러운 슬라이드/비브라토(3반음 이하)는 예외 처리하여 즉시 분할 승인.
 - **Viterbi HMM Decoder:** 기존의 탐욕(Greedy) 기반 1차원 매핑을 은닉 마르코프 모델(HMM)로 대체. 동적 계획법(DP)을 통해 전체 연주의 '생체역학적 이동 비용(Cost)'을 최소화하는 최적 경로를 추론.
 
-### Step 6: Rhythmic Quantization & Pipeline Architecture (Phase 4)
-- **BPM Tracking & PLP:** 베이스 라인의 잦은 당김음 오판을 방지하기 위해 MR(Bassless) 트랙을 최우선으로 분석함. 믹스 음원이 아닌 단일 베이스 트랙(Isolated) 처리 시, 고주파 대역 온셋 추적기(`fmax=8000`)가 슬랩 노이즈를 비트로 오인하는 결함을 방어하기 위해 MR 변수에 `None`을 주입, 저주파 대역(`fmax=400`) 전용 추적기(Fallback)로 강제 우회시키는 안전장치 적용.
-- **Grid Snapping (Euclidean Distance):** 추정된 BPM을 기반으로 16분음표 길이의 시간 격자(Time Grid, $\Delta t$)를 산출. 각 노트의 물리적 발생 시간($t_i$)을 유클리드 거리가 최소화되는 수식($k_i^* = \text{round}(t_i / \Delta t)$)을 통해 가장 가까운 16분음표 격자에 강제 할당(Quantize). 동일 격자 내 다중 노트 소실 방지를 위해 리스트(List) 기반 누적 아키텍처 적용.
-- **Immutable Pipeline (Layered Architecture):** 가변 딕셔너리로 인한 상태 오염과 God Object 안티패턴을 해결하기 위해, `NoteEvent` 불변 데이터 클래스(Dataclass, `frozen=True`)를 도입. 모듈 네임스페이스 충돌을 방지하기 위해 표현 계층(Presentation Layer)을 `renderers/` 패키지로 완전히 분리하여 `Parser` $\rightarrow$ `Fingering` $\rightarrow$ `Quantization` $\rightarrow$ `Renderer` 로 이어지는 단방향 함수형 파이프라인 완성 (`v1.0.0-alpha`).
+### Step 6: Rhythmic Quantization & Pipeline Architecture (Phase 4, 8.1)
+- **BPM Tracking & PLP:** 베이스 라인의 잦은 당김음 오판을 방지하기 위해 MR(Bassless) 트랙을 최우선으로 분석함. 믹스 음원이 아닌 단일 베이스 트랙(Isolated) 처리 시, 고주파 대역 온셋 추적기(`fmax=8000`)가 슬랩 노이즈를 비트로 오인하는 현상을 방지하기 위해 MR 변수에 `None`을 주입, 저주파 대역(`fmax=400`) 전용 추적기(Fallback)로 강제 우회시키는 안전장치 적용.
+- **Grid Snapping (Soft Quantization):** 추정된 BPM을 기반으로 시간 격자(Time Grid)를 산출하되, 기계적인 강제 스냅으로 인한 정답 오차 이탈을 완화하고자 35ms 임계값 기반의 선택적 스냅(Soft Quantization) 알고리즘을 도입함. 동일 격자 내 다중 노트 소실 방지를 위해 리스트(List) 기반 누적 아키텍처를 적용하였으며, 절대 시간차(<50ms) 기반의 병합 로직을 통해 고속 연타 소실을 방지하도록 구조를 개편함.
+- **Immutable Pipeline (Layered Architecture):** 가변 딕셔너리로 인한 상태 오염과 God Object 안티패턴을 해결하기 위해, `NoteEvent` 불변 데이터 클래스(Dataclass, `frozen=True`)를 도입. 모듈 네임스페이스 충돌을 방지하기 위해 표현 계층(Presentation Layer)을 `renderers/` 패키지로 분리하여 `Parser` $\rightarrow$ `Fingering` $\rightarrow$ `Quantization` $\rightarrow$ `Renderer` 로 이어지는 단방향 함수형 파이프라인 구조 적용 (`v1.0.0-alpha`).
 
 ### Step 7: MIDI Export & Web Integration (Phase 5)
 - **Physical-Time MIDI Rendering (`MidiRenderer`):**
@@ -143,6 +143,8 @@ E |---------------------------------------------3--|---------3-----4-----3------
 | **정적 트렌드 오염 (Static Trend Assimilation)** | `tracker.py`의 롤링 미디언이 에러 구간 장기화 시 오염값으로 동화되어 보정을 포기함. | 타격점(Onset) 기준으로 오디오를 조각(Segment)으로 격리하는 파티션 필터링 도입. |
 | **상태 머신의 무관용 분절 (Sustain Fragmentation)** | 파서가 찰나의 피치 흔들림(배음 간섭) 감지 시 즉시 노트를 절단하여 서스테인이 파편화됨. | 50ms 지연 버퍼(`wobble_counter`) 신설. 단, 자연스러운 슬라이딩(3반음 이하)은 우회하도록 예외 처리. |
 | **정량 평가 기준의 도메인 왜곡 (GT Domain Mismatch)** | Slakh 데이터셋 정답지(GT)가 모델 추론값보다 1옥타브 높게 기보되어 정상 추론이 에러로 처리됨. | 평가기(`evaluator.py`) 데이터 로드 단계에서 GT 주파수 배열을 `/ 2.0` 연산하여 물리 주파수와 동기화하는 로직 추가. |
+| **Phase 8.1 (Quantization Penalty)** | | |
+| **양자화 후 채보 정확도(F1) 하락 가설** | 기계적인 강제 스냅(Hard Snapping)으로 인한 엇박자 정답 이탈, 16분음표 격자 맵핑 충돌 및 과도한 노트 병합이 F1 스코어 하락의 주요인일 것으로 추정됨. | 물리적 평가 시간과 시각적 맵핑 인덱스를 분리(Decoupling)하고, **35ms 임계값 기반의 선택적 스냅(Soft Quantization) 및 50ms 미만 절대 시간차 기반 병합 로직**을 구현. |
 ---
 
 ## 5. Future Works (Roadmap)
