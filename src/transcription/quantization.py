@@ -11,7 +11,7 @@ class RhythmicQuantizer:
         self.bpm = 0.0
         self.beat_times = np.array([])
         self.visual_margin = 0.01  
-        self.snap_threshold = 0.035 # 35ms: 이 오차 이내일 때만 격자로 끌어당김 (Soft Quantization)
+        self.snap_threshold = 0.035
 
     def estimate_bpm_and_grid(self, y_bassless: Optional[np.ndarray], y_bass: np.ndarray) -> float:
         if y_bassless is not None:
@@ -48,7 +48,6 @@ class RhythmicQuantizer:
             interval = (60.0 / self.bpm) / subdiv if self.bpm > 0 else 0
             if interval == 0: return time_sec
             nearest = round(time_sec / interval) * interval
-            # Soft Snapping 적용
             return nearest if abs(time_sec - nearest) <= self.snap_threshold else time_sec
 
         idx = np.searchsorted(self.beat_times, time_sec) - 1
@@ -59,7 +58,6 @@ class RhythmicQuantizer:
         grids = [b_start + (j / subdiv) * beat_len for j in range(subdiv + 1)]
         nearest_grid = min(grids, key=lambda g: abs(g - time_sec))
         
-        # Soft Snapping: 격자에 충분히 가깝지 않으면 원본 시간 보존 (엇박자, 리듬 왜곡 방지)
         if abs(nearest_grid - time_sec) <= self.snap_threshold:
             return nearest_grid
         return time_sec
@@ -86,7 +84,6 @@ class RhythmicQuantizer:
                 b_start = self.beat_times[idx]
                 beat_len = self.beat_times[idx + 1] - b_start
                 
-                # Visual Grid Index는 별도로 맵핑 유지 (렌더러용)
                 nearest_grid = min([b_start + (j / subdiv) * beat_len for j in range(subdiv + 1)], key=lambda g: abs(g - event.time))
                 sub_idx = round((nearest_grid - b_start) / (beat_len / subdiv))
                 visual_sub_idx = round(sub_idx * (4 / subdiv))
@@ -95,10 +92,9 @@ class RhythmicQuantizer:
                 subdiv = 4
                 grid_idx = int(np.round(event.time / ((60.0 / self.bpm) / 4)))
 
-            # 물리적 평가는 Soft Snapping이 적용된 q_onset을 사용
             q_onset = self._snap_time(event.time, subdiv)
             q_offset = self._snap_time(event.time + event.duration, subdiv)
-            q_duration = max(q_offset - q_onset, 0.02) # 최소 길이 20ms 보장
+            q_duration = max(q_offset - q_onset, 0.02) 
 
             pre_quantized.append(event.update(
                 grid_index=grid_idx,
@@ -108,12 +104,10 @@ class RhythmicQuantizer:
 
         pre_quantized.sort(key=lambda x: x.quantized_time)
 
-        # 템포 기반이 아닌 '절대적 시간차(Onset Diff)' 기반 노트 병합
         merged_events = []
         curr = pre_quantized[0]
         for nxt in pre_quantized[1:]:
             onset_diff = nxt.quantized_time - curr.quantized_time
-            # 같은 피치이고, 간격이 50ms 미만(사람이 물리적으로 두번 튕길 수 없는 속도)일 때만 합침
             if curr.midi_note == nxt.midi_note and onset_diff < 0.05:
                 new_dur = (nxt.quantized_time + nxt.quantized_duration) - curr.quantized_time
                 curr = curr.update(quantized_duration=new_dur)
@@ -122,7 +116,7 @@ class RhythmicQuantizer:
                 curr = nxt
         merged_events.append(curr)
 
-        # 서스테인(Sustain) 오버랩 커팅 보정
+        # [수정] 이기종 피치 간 미세 오버랩 방지 및 최소 지속시간(10ms) 보장 논리 교정
         for i in range(len(merged_events) - 1):
             curr = merged_events[i]
             nxt = merged_events[i + 1]
@@ -132,12 +126,9 @@ class RhythmicQuantizer:
             o_next = nxt.quantized_time
             
             if e_i > o_next:
-                resolved_end = max(o_i + 0.02, min(e_i, o_next - self.visual_margin))
-                merged_events[i] = curr.update(quantized_duration=(resolved_end - o_i))
+                available_gap = o_next - o_i
+                # 간격 확보가 불가능한 극단적 경우에도 파이프라인 붕괴를 막기 위해 10ms 최소 한계 설정
+                new_dur = max(0.01, min(curr.quantized_duration, available_gap - 0.005))
+                merged_events[i] = curr.update(quantized_duration=new_dur)
 
         return merged_events
-
-    def _apply_musical_smoothing(self, events: List[NoteEvent]) -> List[NoteEvent]:
-        if not events: return []
-        min_threshold = (60.0 / self.bpm) / 8 if self.bpm > 0 else 0.05
-        return [e for e in events if e.quantized_duration >= min_threshold]
