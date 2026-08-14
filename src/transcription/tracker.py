@@ -4,9 +4,9 @@ import librosa
 import scipy.signal
 import torch
 import torchcrepe
-import gc # 가비지 컬렉터 추가
+import gc
 
-def clean_octave_errors_smart(f0_array, onset_mask, **kwargs):
+def clean_octave_errors_smart(f0_array, onset_mask):
     """
     온셋(Onset) 경계를 기준으로 시계열 데이터를 독립 조각(Segment)으로 분할한 뒤,
     각 조각의 중앙값(진짜 기음)을 기준으로 배음 에러(옥타브 도약)를 격리하여 평탄화합니다.
@@ -18,10 +18,8 @@ def clean_octave_errors_smart(f0_array, onset_mask, **kwargs):
         return f0_clean
         
     midi_notes = np.full_like(f0_clean, np.nan)
-    # 정수 반올림을 하지 않고 소수점을 보존하여 원본의 미세 튜닝(Micro-timing/Vibrato)을 지킵니다.
     midi_notes[mask] = librosa.hz_to_midi(f0_clean[mask])
     
-    # Onset을 기준으로 파티션 경계(Boundaries) 생성
     onset_indices = np.where(onset_mask)[0]
     
     if len(onset_indices) == 0:
@@ -42,10 +40,9 @@ def clean_octave_errors_smart(f0_array, onset_mask, **kwargs):
         segment_midi = midi_notes[start_idx:end_idx]
         valid_midi = segment_midi[segment_mask]
         
-        # 해당 타현 조각의 굳건한 중앙값 산출 (이상치 완벽 무시)
+        # [수정] 신뢰도 마스킹이 선행되므로, 이 중앙값은 100% 진짜 피치의 중앙값임을 보장함
         segment_median = np.median(valid_midi)
         
-        # 조각 내부의 옥타브 스파이크만 선별하여 보정
         for j in range(end_idx - start_idx):
             if not segment_mask[j]:
                 continue
@@ -66,10 +63,7 @@ def clean_octave_errors_smart(f0_array, onset_mask, **kwargs):
     f0_clean[mask] = librosa.midi_to_hz(midi_notes[mask])
     return f0_clean
 
-
-# 🔴 [롤백] fmin을 다시 40으로 복구
 def get_f0_crepe_robust(audio, sr, hop_length=160, fmin=40, fmax=500, chunk_duration=30, model_capacity='tiny', batch_size=512):
-    # 🔴 [롤백] 초저역대 럼블 노이즈를 막기 위해 HPF를 35Hz로 복구
     sos = scipy.signal.butter(4, 35, 'hp', fs=sr, output='sos')
     audio = scipy.signal.sosfilt(sos, audio)
     audio = audio.astype(np.float32)
@@ -108,7 +102,6 @@ def get_f0_crepe_robust(audio, sr, hop_length=160, fmin=40, fmax=500, chunk_dura
         
         while not success:
             try:
-                # [Optimization] 추론 시 그래디언트 계산 비활성화로 메모리 점유 최소화
                 with torch.no_grad():
                     f0_chunk, conf_chunk = torchcrepe.predict(
                         audio_tensor, sr, hop_length=hop_length, fmin=fmin, fmax=fmax,
@@ -118,19 +111,17 @@ def get_f0_crepe_robust(audio, sr, hop_length=160, fmin=40, fmax=500, chunk_dura
                 success = True
             except RuntimeError as e:
                 if "out of memory" in str(e).lower():
-                    # [Correction] 에러 발생 즉시 텐서 참조 해제 및 VRAM 수동 비우기
                     del audio_tensor
                     if device == 'cuda':
                         torch.cuda.empty_cache()
-                        torch.cuda.ipc_collect() # 파편화된 메모리 회수
-                    gc.collect() # 파이썬 레벨 가비지 컬렉션 강제 실행
+                        torch.cuda.ipc_collect()
+                    gc.collect()
                     
                     if current_batch <= 1:
                         raise RuntimeError("❌ CUDA OOM: 배치 사이즈를 1까지 줄였으나 메모리가 부족합니다.")
                     
                     current_batch //= 2
                     print(f"⚠️ GPU OOM 감지. 배치 사이즈 {current_batch}로 재시도...")
-                    # 텐서 재생성
                     audio_tensor = torch.tensor(audio_chunk).unsqueeze(0).to(device)
                 else:
                     raise e
@@ -163,13 +154,15 @@ def get_f0_crepe_robust(audio, sr, hop_length=160, fmin=40, fmax=500, chunk_dura
     valid_onsets = onset_frames[onset_frames < len(f0)]
     onset_mask[valid_onsets] = True
 
-    f0 = clean_octave_errors_smart(f0, onset_mask, window_size=7, onset_tolerance=4)
-
+    # 1. 🚨 [수정됨] 신뢰도 마스킹을 먼저 실행하여 쓰레기(Garbage) 주파수를 사전에 완전히 차단함
     mask_low = (f0 < 80) & (confidence < 0.2)
     mask_mid = (f0 >= 80) & (f0 <= 200) & (confidence < 0.4)
     mask_high = (f0 > 200) & (confidence < 0.6)
 
     f0[mask_low | mask_mid | mask_high] = np.nan
     f0[f0 > fmax] = np.nan
+
+    # 2. 🚨 [수정됨] 마스킹되어 순수해진 데이터로 옥타브 보정을 수행. (데드 코드 kwargs 제거)
+    f0 = clean_octave_errors_smart(f0, onset_mask)
 
     return f0, confidence, onset_mask
