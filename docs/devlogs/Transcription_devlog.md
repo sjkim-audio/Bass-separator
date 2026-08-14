@@ -148,6 +148,9 @@ E |---------------------------------------------3--|---------3-----4-----3------
 | **고품질 트랙의 F1 스코어 0% 수렴 (Zero-F1 Anomaly)** | 옥타브 보정기가 선행 실행되어, 무음 구간의 가비지 피치(노이즈)가 옥타브 대푯값(Median) 계산을 오염시키는 순서 역전 버그 발견. | 신뢰도 마스킹 연산을 옥타브 보정 로직 이전으로 재배치하여, 순수한 피치 데이터 위에서만 화성 평탄화가 이루어지도록 로직을 교정함. |
 | **이기종 피치 간 다성부 중첩 (Polyphony Overlap)** | 양자화 후 피치가 다른 인접 노트들의 간격이 극도로 짧을 때, 서스테인 강제 할당 수식(`max(0.02, min)`)에 의해 뒤 노트의 시작점보다 앞 노트의 종료점이 늦어지는 물리적 침범 현상 발견. | 오버랩 클램핑(Clamp) 수식을 조절하여, 두 노트의 실제 간격(`available_gap`)을 바탕으로 앞 노트의 지속시간을 동적 절단하되 시스템 붕괴를 막기 위한 최소 한계치(10ms)만 보장하도록 수정. |
 | **코드 컨벤션 오염 (Dead Code)** | 과거 실험 후 방치된 사용되지 않는 메서드 및 Kwargs가 모듈 내부에 잔존. | `quantization.py`의 `_apply_musical_smoothing` 및 `tracker.py` 호출부의 미사용 파라미터를 일괄 소거하여 유지보수성 확보. |
+### Phase 8.2 (Bugfix & Architectural Compliance)
+*   **5-String Bass Infrastructure Expansion:** Drop D 및 5현(Low B) 베이스 입력 시 발생하던 Viterbi HMM 디코더 및 렌더러의 `KeyError` 크래시를 방어하기 위해 `PitchParser` 튜닝 배열을 `[23, 28, 33, 38, 43]`으로 확장하고, `TabRenderer`의 배열 규격을 5현 표준으로 일괄 상향 동기화함.
+*   **Grid-based Merging Enforcer:** `quantization.py` 내의 하드코딩된 절대시간(50ms) 병합 로직을 전면 폐기하고, ADR-009 규약에 명시된 '동일 양자화 격자(Grid Index)' 기반 조건식으로 교정하여 BPM 150 이상 곡의 16분음표 스타카토 연타 뭉개짐(False Legato) 현상을 원천 차단.
 ---
 
 ## 5. Future Works (Roadmap)
