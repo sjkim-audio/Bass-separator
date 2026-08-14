@@ -7,7 +7,8 @@ class PitchParser:
     def __init__(self, sr: int = 16000, hop_length: int = 160):
         self.sr = sr
         self.hop_length = hop_length
-        self.tuning: List[int] = [28, 33, 38, 43] # E, A, D, G
+        # 5현 베이스(Low B) 지원을 위한 튜닝 배열 확장
+        self.tuning: List[int] = [23, 28, 33, 38, 43] # B, E, A, D, G
 
     def get_fret_candidates(self, hz: float) -> List[Tuple[int, int]]:
         if hz <= 0 or np.isnan(hz):
@@ -27,11 +28,10 @@ class PitchParser:
         note_start_frame = 0
         blank_counter = 0
         
-        # [추가] 피치 이탈(Wobble) 제어 변수
         wobble_note = None
         wobble_counter = 0
-        WOBBLE_TOLERANCE_FRAMES = 5  # 50ms 지연 버퍼
-        WOBBLE_PITCH_JUMP_THRESHOLD = 3 # 단3도(3반음) 이하의 변동은 슬라이드로 간주하여 버퍼 예외
+        WOBBLE_TOLERANCE_FRAMES = 5  
+        WOBBLE_PITCH_JUMP_THRESHOLD = 3 
 
         MIN_DURATION_FRAMES = 7
         TOLERANCE_FRAMES = 15.0
@@ -56,7 +56,6 @@ class PitchParser:
                     blank_counter = 0
                     
                 elif current_onset is True:
-                    # 명시적 어택 감지 시 버퍼 무시하고 즉시 분할
                     end_idx = i - int(blank_counter) - int(wobble_counter)
                     duration_frames = end_idx - note_start_frame
                     
@@ -73,7 +72,6 @@ class PitchParser:
                     blank_counter = 0
                     
                 elif midi_note != current_note:
-                    # [핵심] 슬라이드/비브라토 보호: 피치 도약이 3반음 이하이면 즉시 분할
                     if abs(midi_note - current_note) <= WOBBLE_PITCH_JUMP_THRESHOLD:
                         end_idx = i - int(blank_counter)
                         duration_frames = end_idx - note_start_frame
@@ -90,14 +88,12 @@ class PitchParser:
                         wobble_counter = 0
                         blank_counter = 0
                     else:
-                        # 급격한 피치 도약(4반음 이상): 배음 스파이크 의심, 지연 버퍼 가동
                         if wobble_note == midi_note:
                             wobble_counter += 1
                         else:
                             wobble_note = midi_note
                             wobble_counter = 1
                             
-                        # 버퍼 임계치 도달 시 새로운 노트로 승인
                         if wobble_counter >= WOBBLE_TOLERANCE_FRAMES:
                             end_idx = i - int(wobble_counter) + 1 - int(blank_counter)
                             duration_frames = end_idx - note_start_frame
@@ -114,13 +110,12 @@ class PitchParser:
                             wobble_counter = 0
                             blank_counter = 0
                 else:
-                    # 정상 피치 유지: 찰나의 이탈 기록 초기화
                     wobble_note = None
                     wobble_counter = 0
                     blank_counter = 0
             else:
                 blank_counter += 1
-                wobble_counter = 0  # 신호 단절 시 버퍼도 초기화
+                wobble_counter = 0  
                 
                 if current_note is not None and blank_counter >= TOLERANCE_FRAMES:
                     end_idx = i - int(blank_counter)

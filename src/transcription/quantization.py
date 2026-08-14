@@ -105,18 +105,18 @@ class RhythmicQuantizer:
         pre_quantized.sort(key=lambda x: x.quantized_time)
 
         merged_events = []
-        curr = pre_quantized[0]
-        for nxt in pre_quantized[1:]:
-            onset_diff = nxt.quantized_time - curr.quantized_time
-            if curr.midi_note == nxt.midi_note and onset_diff < 0.05:
-                new_dur = (nxt.quantized_time + nxt.quantized_duration) - curr.quantized_time
-                curr = curr.update(quantized_duration=new_dur)
-            else:
-                merged_events.append(curr)
-                curr = nxt
-        merged_events.append(curr)
+        if pre_quantized:
+            curr = pre_quantized[0]
+            for nxt in pre_quantized[1:]:
+                # ADR-009 원칙 반영: 절대 시간이 아닌 동일 격자(Grid) 내 배정 여부로 병합 조건 강화
+                if curr.midi_note == nxt.midi_note and curr.grid_index == nxt.grid_index:
+                    new_dur = (nxt.quantized_time + nxt.quantized_duration) - curr.quantized_time
+                    curr = curr.update(quantized_duration=new_dur)
+                else:
+                    merged_events.append(curr)
+                    curr = nxt
+            merged_events.append(curr)
 
-        # [수정] 이기종 피치 간 미세 오버랩 방지 및 최소 지속시간(10ms) 보장 논리 교정
         for i in range(len(merged_events) - 1):
             curr = merged_events[i]
             nxt = merged_events[i + 1]
@@ -127,7 +127,6 @@ class RhythmicQuantizer:
             
             if e_i > o_next:
                 available_gap = o_next - o_i
-                # 간격 확보가 불가능한 극단적 경우에도 파이프라인 붕괴를 막기 위해 10ms 최소 한계 설정
                 new_dur = max(0.01, min(curr.quantized_duration, available_gap - 0.005))
                 merged_events[i] = curr.update(quantized_duration=new_dur)
 
