@@ -7,20 +7,39 @@ class PitchParser:
     def __init__(self, sr: int = 16000, hop_length: int = 160):
         self.sr = sr
         self.hop_length = hop_length
-        # 5현 베이스(Low B) 지원을 위한 튜닝 배열 확장
-        self.tuning: List[int] = [23, 28, 33, 38, 43] # B, E, A, D, G
+        # 절대 현 인덱싱: 0=B, 1=E, 2=A, 3=D, 4=G
+        self.tuning_map: List[Tuple[int, int]] = [
+            (0, 23), (1, 28), (2, 33), (3, 38), (4, 43)
+        ]
+        self.is_5_string = False
 
     def get_fret_candidates(self, hz: float) -> List[Tuple[int, int]]:
         if hz <= 0 or np.isnan(hz):
             return []
         midi_note = int(round(librosa.hz_to_midi(hz)))
-        return [(i, midi_note - start) for i, start in enumerate(self.tuning) if 0 <= midi_note - start <= 24]
+        candidates = []
+        for s_idx, start_midi in self.tuning_map:
+            if not self.is_5_string and s_idx == 0:
+                continue
+            fret = midi_note - start_midi
+            if 0 <= fret <= 24:
+                candidates.append((s_idx, fret))
+        return candidates
 
     def choose_fret_greedy(self, candidates: List[Tuple[int, int]]) -> Optional[Tuple[int, int]]:
         if not candidates: return None
         return min(candidates, key=lambda x: x[1])
 
     def parse_f0_to_events(self, f0_array: np.ndarray, confidence_array: np.ndarray, onset_mask: np.ndarray) -> List[NoteEvent]:
+        valid_mask = (f0_array > 0) & (~np.isnan(f0_array))
+        midi_array = np.full(len(f0_array), np.nan)
+        midi_array[valid_mask] = np.round(librosa.hz_to_midi(f0_array[valid_mask]))
+
+        # 노이즈를 배제한 동적 5현 튜닝 탐지 (Lazy Evaluation)
+        robust_mask = valid_mask & (confidence_array > 0.5)
+        min_midi = np.nanmin(midi_array[robust_mask]) if np.any(robust_mask) else 28
+        self.is_5_string = min_midi < 28
+
         events = []
         frame_time = self.hop_length / self.sr
         
@@ -36,10 +55,6 @@ class PitchParser:
         MIN_DURATION_FRAMES = 7
         TOLERANCE_FRAMES = 15.0
         LATENCY_COMP_SEC = 0.005
-
-        valid_mask = (f0_array > 0) & (~np.isnan(f0_array))
-        midi_array = np.full(len(f0_array), np.nan)
-        midi_array[valid_mask] = np.round(librosa.hz_to_midi(f0_array[valid_mask]))
 
         for i, midi_val in enumerate(midi_array):
             current_onset = onset_mask[i]
@@ -144,6 +159,7 @@ class PitchParser:
         pos = self.choose_fret_greedy(candidates)
         if pos:
             return NoteEvent(time=time_sec, duration=duration_sec, midi_note=midi_note, string_idx=pos[0], fret=pos[1], confidence=confidence)
+        # 유효하지 않은 노트는 매핑 정보를 None으로 남겨 하류(Viterbi)에서 식별 후 파기하도록 유도
         return NoteEvent(time=time_sec, duration=duration_sec, midi_note=midi_note, confidence=confidence)
 
     def _post_process_garbage_pitch(self, events: List[NoteEvent]) -> List[NoteEvent]:
