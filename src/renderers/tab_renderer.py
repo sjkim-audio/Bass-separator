@@ -3,8 +3,6 @@ from typing import List
 from src.models.events import NoteEvent
 
 class TabRenderer:
-    # 5현 베이스(Low B) 지원을 위한 렌더링 매핑 확장
-    STRING_ORDER = [4, 3, 2, 1, 0]
     STRING_NAMES = {4: "G", 3: "D", 2: "A", 1: "E", 0: "B"}
 
     @staticmethod
@@ -19,6 +17,10 @@ class TabRenderer:
             output_lines.append(f"🎸 Unquantized Bass Tab (Fallback Rendering - Time Based)\n")
         else:
             output_lines.append(f"🎸 Quantized Bass Tab (BPM: {round(bpm)})\n")
+
+        # 0번 인덱스(B현) 사용 여부 동적 스캔 (Lazy Evaluation)
+        has_low_b = any(e.string_idx == 0 for e in events if e.string_idx is not None)
+        string_order = [4, 3, 2, 1, 0] if has_low_b else [4, 3, 2, 1]
 
         virtual_grids = []
         durations_in_grids = []
@@ -45,7 +47,7 @@ class TabRenderer:
 
         tab_buffer = {
             s_idx: [["---" for _ in range(16)] for _ in range(total_measures)] 
-            for s_idx in TabRenderer.STRING_ORDER
+            for s_idx in string_order
         }
 
         for idx, event in enumerate(events):
@@ -83,7 +85,7 @@ class TabRenderer:
         for line_start in range(0, total_measures, measures_per_line):
             line_end = min(line_start + measures_per_line, total_measures)
             
-            for s_idx in TabRenderer.STRING_ORDER:
+            for s_idx in string_order:
                 row_str = f"{TabRenderer.STRING_NAMES[s_idx]} |"
                 for m_idx in range(line_start, line_end):
                     measure_str = "".join(tab_buffer[s_idx][m_idx])
