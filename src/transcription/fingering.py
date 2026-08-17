@@ -47,11 +47,9 @@ class ViterbiSmartFingering:
             if (dist_s == 2 and dist_f == 2) or (dist_s == 1 and dist_f == 2):
                 cost_s *= 0.3
                 cost_f *= 0.5
-            
             elif dist_f <= self.block_span:
                 cost_f *= self.block_discount  
                 cost_s *= 0.8                  
-            
             else:
                 if dist_f > self.shift_thresh:
                     cost_f += self.shift_penalty * ((dist_f - self.shift_thresh) ** 1.5)
@@ -73,23 +71,28 @@ class ViterbiSmartFingering:
     def viterbi_decode(self, events: List[NoteEvent], get_candidates_fn) -> List[NoteEvent]:
         if not events: return []
         
+        valid_events = []
         state_sequence = []
+        
+        # 기호 영역 파기: 연주 범위를 이탈한 가비지 피치 필터링
         for event in events:
             midi_val = getattr(event, 'midi_note', getattr(event, 'pitch', 0))
             hz = librosa.midi_to_hz(midi_val) if midi_val else 0
             
             candidates = get_candidates_fn(hz)
-            # Low B(5현) 개방현(0, 0)을 Fallback으로 수정하여 배열 크래시 방지
-            state_sequence.append(candidates if candidates else [(0, 0)])
-
+            if candidates:
+                state_sequence.append(candidates)
+                valid_events.append(event)
+                
+        if not valid_events: return []
         n_steps = len(state_sequence)
         
         dp = [np.zeros(len(states)) for states in state_sequence]
         backpointers = [np.zeros(len(states), dtype=int) for states in state_sequence]
 
         for t in range(1, n_steps):
-            t_curr = getattr(events[t], 'time', getattr(events[t], 'start_time', 0.0))
-            t_prev = getattr(events[t-1], 'time', getattr(events[t-1], 'start_time', 0.0))
+            t_curr = getattr(valid_events[t], 'time', getattr(valid_events[t], 'start_time', 0.0))
+            t_prev = getattr(valid_events[t-1], 'time', getattr(valid_events[t-1], 'start_time', 0.0))
             dt = t_curr - t_prev
             
             for curr_idx, curr_state in enumerate(state_sequence[t]):
@@ -105,7 +108,7 @@ class ViterbiSmartFingering:
             best_path.append(curr_idx)
         best_path.reverse()
 
-        for t, event in enumerate(events):
+        for t, event in enumerate(valid_events):
             best_string, best_fret = state_sequence[t][best_path[t]]
             
             if hasattr(event, 'update'):
@@ -117,4 +120,4 @@ class ViterbiSmartFingering:
                 event.string = best_string
                 event.fret = best_fret
 
-        return events
+        return valid_events
