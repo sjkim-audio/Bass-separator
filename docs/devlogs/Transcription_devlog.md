@@ -151,6 +151,10 @@ E |---------------------------------------------3--|---------3-----4-----3------
 | **Phase 8.2 (Bugfix & Architectural Compliance)** | | |
 | **5-String Bass Infrastructure Expansion** | Drop D 및 5현(Low B) 베이스 입력 시 발생하던 Viterbi HMM 디코더 및 렌더러의 `KeyError` 크래시 발생. | `PitchParser` 튜닝 배열을 `[23, 28, 33, 38, 43]`으로 확장하고, `TabRenderer`의 배열 규격을 5현 표준으로 일괄 상향 동기화함. |
 | **Grid-based Merging Enforcer** | `quantization.py` 내 하드코딩된 절대시간(50ms) 병합 로직으로 인해 BPM 150 이상 곡의 16분음표 스타카토 연타 시 뭉개짐(False Legato) 현상 유발. | 기존 절대시간 로직을 전면 폐기하고, ADR-009 규약에 명시된 '동일 양자화 격자(Grid Index)' 기반 조건식으로 교정하여 원천 차단. |
+| **Phase 8.3 (Architecture Refinement: Biomechanical Defense & Lazy Detection)** | | |
+| **Dynamic Tuning Detection (Lazy Evaluation)** | 전역 하드코딩된 5현 렌더링이 4현 악보의 가독성을 파괴하는 안티패턴 발생. | `PitchParser`가 신뢰도 높은 피치 데이터를 스캔해 E1(MIDI 28) 미만의 타현이 있을 경우에만 5현 매핑을 개방하며, `TabRenderer`는 B현(인덱스 0) 데이터의 실제 존재 여부를 평가(Lazy Evaluation)하여 유동적으로 4/5현 템플릿을 생성하도록 개선. |
+| **Viterbi Garbage Pitch Dropping** | 지판 매핑이 불가능한 가비지 피치(에러) 유입 시 강제로 개방현 `(0, 0)`을 할당하여 DP 행렬 오염(Penalty 붕괴) 및 전역 최적해 훼손을 유발함. | 유효 후보군이 없는 이벤트는 Viterbi 디코딩 이전의 이벤트 시퀀스에서 영구 파기(Drop)하여 생체역학 전역 최적해(Global Optimal Path)를 안전하게 보존하도록 로직 교정. |
+
 
 ---
 
