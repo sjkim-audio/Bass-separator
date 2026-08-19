@@ -40,7 +40,6 @@ def clean_octave_errors_smart(f0_array, onset_mask):
         segment_midi = midi_notes[start_idx:end_idx]
         valid_midi = segment_midi[segment_mask]
         
-        # [수정] 신뢰도 마스킹이 선행되므로, 이 중앙값은 100% 진짜 피치의 중앙값임을 보장함
         segment_median = np.median(valid_midi)
         
         for j in range(end_idx - start_idx):
@@ -152,9 +151,12 @@ def get_f0_crepe_robust(audio, sr, hop_length=160, fmin=40, fmax=500, chunk_dura
     
     onset_mask = np.zeros(len(f0), dtype=bool)
     valid_onsets = onset_frames[onset_frames < len(f0)]
-    onset_mask[valid_onsets] = True
+    
+    # 기계적 왜곡(Artifact)에 의한 가짜 타격점(False Onset) 교차 필터링
+    # 피치 신뢰도가 0.4 미만인 프레임의 타격점은 노이즈로 간주하여 마스크에서 배제
+    artifact_resistant_onsets = np.array([idx for idx in valid_onsets if confidence[idx] >= 0.4], dtype=int)
+    onset_mask[artifact_resistant_onsets] = True
 
-    # 1. 🚨 [수정됨] 신뢰도 마스킹을 먼저 실행하여 쓰레기(Garbage) 주파수를 사전에 완전히 차단함
     mask_low = (f0 < 80) & (confidence < 0.2)
     mask_mid = (f0 >= 80) & (f0 <= 200) & (confidence < 0.4)
     mask_high = (f0 > 200) & (confidence < 0.6)
@@ -162,7 +164,6 @@ def get_f0_crepe_robust(audio, sr, hop_length=160, fmin=40, fmax=500, chunk_dura
     f0[mask_low | mask_mid | mask_high] = np.nan
     f0[f0 > fmax] = np.nan
 
-    # 2. 🚨 [수정됨] 마스킹되어 순수해진 데이터로 옥타브 보정을 수행. (데드 코드 kwargs 제거)
     f0 = clean_octave_errors_smart(f0, onset_mask)
 
     return f0, confidence, onset_mask
