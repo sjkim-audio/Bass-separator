@@ -7,7 +7,6 @@ class PitchParser:
     def __init__(self, sr: int = 16000, hop_length: int = 160):
         self.sr = sr
         self.hop_length = hop_length
-        # 절대 현 인덱싱: 0=B, 1=E, 2=A, 3=D, 4=G
         self.tuning_map: List[Tuple[int, int]] = [
             (0, 23), (1, 28), (2, 33), (3, 38), (4, 43)
         ]
@@ -35,7 +34,6 @@ class PitchParser:
         midi_array = np.full(len(f0_array), np.nan)
         midi_array[valid_mask] = np.round(librosa.hz_to_midi(f0_array[valid_mask]))
 
-        # 노이즈를 배제한 동적 5현 튜닝 탐지 (Lazy Evaluation)
         robust_mask = valid_mask & (confidence_array > 0.5)
         min_midi = np.nanmin(midi_array[robust_mask]) if np.any(robust_mask) else 28
         self.is_5_string = min_midi < 28
@@ -50,7 +48,8 @@ class PitchParser:
         wobble_note = None
         wobble_counter = 0
         WOBBLE_TOLERANCE_FRAMES = 5  
-        WOBBLE_PITCH_JUMP_THRESHOLD = 3 
+        # 완전5도(7반음) 이하의 변동은 정상 연주(스케일 이동)로 승인하여 버퍼 우회
+        WOBBLE_PITCH_JUMP_THRESHOLD = 7 
 
         MIN_DURATION_FRAMES = 7
         TOLERANCE_FRAMES = 15.0
@@ -159,7 +158,6 @@ class PitchParser:
         pos = self.choose_fret_greedy(candidates)
         if pos:
             return NoteEvent(time=time_sec, duration=duration_sec, midi_note=midi_note, string_idx=pos[0], fret=pos[1], confidence=confidence)
-        # 유효하지 않은 노트는 매핑 정보를 None으로 남겨 하류(Viterbi)에서 식별 후 파기하도록 유도
         return NoteEvent(time=time_sec, duration=duration_sec, midi_note=midi_note, confidence=confidence)
 
     def _post_process_garbage_pitch(self, events: List[NoteEvent]) -> List[NoteEvent]:
