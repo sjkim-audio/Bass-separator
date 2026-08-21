@@ -154,6 +154,9 @@ E |---------------------------------------------3--|---------3-----4-----3------
 | **Phase 8.3 (Architecture Refinement: Biomechanical Defense & Lazy Detection)** | | |
 | **Dynamic Tuning Detection (Lazy Evaluation)** | 전역 하드코딩된 5현 렌더링이 4현 악보의 가독성을 파괴하는 안티패턴 발생. | `PitchParser`가 신뢰도 높은 피치 데이터를 스캔해 E1(MIDI 28) 미만의 타현이 있을 경우에만 5현 매핑을 개방하며, `TabRenderer`는 B현(인덱스 0) 데이터의 실제 존재 여부를 평가(Lazy Evaluation)하여 유동적으로 4/5현 템플릿을 생성하도록 개선. |
 | **Viterbi Garbage Pitch Dropping** | 지판 매핑이 불가능한 가비지 피치(에러) 유입 시 강제로 개방현 `(0, 0)`을 할당하여 DP 행렬 오염(Penalty 붕괴) 및 전역 최적해 훼손을 유발함. | 유효 후보군이 없는 이벤트는 Viterbi 디코딩 이전의 이벤트 시퀀스에서 영구 파기(Drop)하여 생체역학 전역 최적해(Global Optimal Path)를 안전하게 보존하도록 로직 교정. |
+| **Phase 8.4 (DSP Calibration: Artifact Masking & Wobble Tolerance)** | | |
+| **Artifact-resistant Onset Masking** | 음원 분리 왜곡(Artifact)에 의해 생성된 가짜 온셋(False Onset)이 옥타브 보정기의 파티션을 무의미하게 조각내어 에러 평탄화를 무력화시킴. | `librosa.onset`의 타격점 배열 중 피치 신뢰도(Confidence)가 0.4 미만인 프레임을 노이즈로 간주하여 마스크에서 배제하는 교차 필터링 도입. |
+| **Wobble Buffer Threshold Calibration** | 장3도(4반음) 이상의 도약을 배음 에러로 의심하여 지연 버퍼에 억류함으로써, 해머링 온 등 유효한 숏 노트가 증발(False Negative)함. | 펜타토닉 스케일 등 베이스의 관용적 연주를 반영하여 `WOBBLE_PITCH_JUMP_THRESHOLD`를 완전5도(7반음)로 상향 조절하여 음악적 수용 범위(Musical Interval Tolerance) 확보. |
 
 
 ---
