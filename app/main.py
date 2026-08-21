@@ -97,8 +97,8 @@ async def run_pipeline_task(task_id: str, temp_file_path: str):
             midi_filename = f"{task_id}.mid"
             midi_output_path = task_out_dir / midi_filename
             
-            if quantized_events:
-                MidiRenderer.render_midi(quantized_events, bpm, str(midi_output_path))
+            if fingered_events:
+                MidiRenderer.render_midi(fingered_events, bpm, str(midi_output_path))
             else:
                 print(f"⚠️ [{task_id}] 베이스 노트가 감지되지 않아 MIDI 생성을 건너뜁니다.")
                 ascii_tab = "⚠️ 감지된 베이스 노트가 없습니다. (오디오 볼륨이 너무 작거나 베이스가 없는 구간일 수 있습니다.)"
