@@ -39,38 +39,6 @@
 
 ---
 
-## ⚙️ Track B: System Infrastructure & MLOps Pipeline
-**목표:** 대규모 트래픽을 견디는 비동기 서빙 인프라를 구축하고, 모델 품질 고도화를 위한 MLOps 체계를 확립한다.
-
-### 🚀 Milestone 1. Core E2E Pipeline MVP & Data Contracts
-**목표:** 오디오 입력부터 최종 데이터 구조체까지 이어지는 무결성 보장.
-* **추론 아키텍처 확립:** Demucs(분리) $\rightarrow$ CREPE(피치 추적) $\rightarrow$ 전후처리(Filtering) 파이프라인 통합.
-* **Unquantized 타이밍 및 운지법 디코딩:** 강제 격자 할당 로직 폐기. Onset 해상도를 밀리초 단위로 극대화하여 슬랩, 셔플 등 연주의 미세한 타이밍(Micro-timing)을 보존하는 Unquantized MIDI 추출 및 Viterbi 디코딩 수행.
-* **표준화된 데이터 컨트랙트(DTO) 구현:**
-  * **MLOps 메타데이터 통합:** 파인튜닝 추적용 `TranscriptionMetadata` 신설 및 클라이언트 다운로드용 정적 파일 서빙 URL DTO 내장.
-  * **신뢰도(Confidence) 지표 보존:** CREPE 모델의 예측 확률을 보존하여 프론트엔드의 고스트 노트 시각적 렌더링 지원.
-  * **직렬화 오버헤드 방어:** 부동소수점 데이터는 Pydantic `@field_validator`로 밀리초 단위 반올림하여 페이로드 팽창 억제.
-
-### 🚀 Milestone 2. Asynchronous Serving Infrastructure
-**목표:** 비동기 확장성 확보 및 실시간 진행 상태 스트리밍(SSE) 구축.
-* **메시지 브로커 및 Task Queue 일원화:** FastAPI는 API Gateway 역할(HTTP 202)만 수행하며, 모든 추론 요청을 Redis/Celery 큐로 일원화. 단일 세마포어(Semaphore) 병목 해소.
-* **Priority Queue 기반 워커 최적화:** 짧은 오디오 전담 `High-Priority Worker`와 대용량 전담 `Heavy-Duty Worker` 분리. 하드/소프트 타임아웃 강제 설정.
-* **SSE (Server-Sent Events) 상태 스트리밍:** Polling의 낭비를 배제하고 FastAPI `StreamingResponse`를 통해 Celery Task 상태를 클라이언트에 단방향 푸시.
-
-### 🚀 Milestone 3. Front-End Integration & UX
-**목표:** 반응형 웹 UI 연동 및 데이터 클라이언트 제어권 이관.
-* **React/Vanilla JS 프론트엔드 구축:** Streamlit 폐기 및 SSE 네이티브 웹 아키텍처 도입.
-* **클라이언트 사이드 렌더링 및 제어:** 인터랙티브 악보 렌더링 및 '16분음표 스냅(Snap to Grid)' 토글을 구현하여 사용자가 원할 때만 양자화 제어.
-* **E2E 통합 부하 테스트:** 업로드 $\rightarrow$ Celery 분배 $\rightarrow$ GPU 추론 $\rightarrow$ SSE 렌더링 사이클 검증.
-
-### 🚀 Milestone 4. Data-Centric MLOps & Fine-Tuning
-**목표:** 파이프라인 안정화 이후 베이스 분리 및 피치 추적의 한계 돌파.
-* **프로그래매틱 데이터 합성:** 타 악기(MR)와 베이스 소스를 오류 없이 자동 믹싱/증강.
-* **Training-Serving Skew 방어:** 훈련 데이터 생성 시 서빙 환경과 동일한 Sample Rate 변환 전처리 강제.
-* **4-Stem 마스킹 학습 및 실험 추적:** 기존 4-Stem 분리 모델의 파국적 망각을 막기 위해 미비 트랙 Zero-padding 및 Partial Loss Optimization 도입. MLflow 연동 하이퍼파라미터 추적.
-
----
-
 ## 📊 Data Strategy & Evaluation Framework
 알고리즘 검증 및 향후 고도화를 위해 활용할 제한적이고 현실적인 오픈소스 데이터 전략이다.
 
