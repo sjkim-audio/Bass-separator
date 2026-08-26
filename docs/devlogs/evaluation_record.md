@@ -165,7 +165,7 @@
 
 ---
 
-<details open>
+<details>
 <summary><b>📅 [2026-08-23] Phase 8.2: E2E 벤치마크 재구동 결과 및 성능 상한(Upper Bound) 도달 분석</b></summary>
 
 <br>
@@ -209,7 +209,7 @@
 ---
 
 <details open>
-<summary><b>📅 [2026-08-23] Phase 8.2: E2E 벤치마크 재구동 결과 및 시각화 지표 기반 성능 상한 분석</b></summary>
+<summary><b>📅 [2026-08-26] Phase 8.2: E2E 벤치마크 재구동 결과 및 시각화 지표 기반 성능 상한 분석</b></summary>
 
 <br>
 
@@ -231,8 +231,15 @@
 ### 2. 시각화 지표 분석 및 핵심 병목 (Visual Analysis & Bottlenecks)
 
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/a02370f9-a788-4074-acc8-faaa2f33560e" width="48%" />
-  <img src="https://github.com/user-attachments/assets/762e1fac-d778-490d-9c7d-dec9cd387317" width="48%" />
+  <figure>
+    <img src="https://github.com/user-attachments/assets/a02370f9-a788-4074-acc8-faaa2f33560e" width="100%" alt="20260803" />
+    <figcaption align="center"><sub>20260803</sub></figcaption>
+  </figure>
+  <br />
+  <figure>
+    <img src="https://github.com/user-attachments/assets/762e1fac-d778-490d-9c7d-dec9cd387317" width="100%" alt="20260823" />
+    <figcaption align="center"><sub>20260823</sub></figcaption>
+  </figure>
 </p>
 
 이전 평가에서 제기되었던 가설들을 교정 패치 후 산출된 데이터와 시각화 지표를 통해 검증했습니다.
