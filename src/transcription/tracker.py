@@ -152,10 +152,18 @@ def get_f0_crepe_robust(audio, sr, hop_length=160, fmin=40, fmax=500, chunk_dura
     onset_mask = np.zeros(len(f0), dtype=bool)
     valid_onsets = onset_frames[onset_frames < len(f0)]
     
-    # 기계적 왜곡(Artifact)에 의한 가짜 타격점(False Onset) 교차 필터링
-    # 피치 신뢰도가 0.4 미만인 프레임의 타격점은 노이즈로 간주하여 마스크에서 배제
-    artifact_resistant_onsets = np.array([idx for idx in valid_onsets if confidence[idx] >= 0.4], dtype=int)
-    onset_mask[artifact_resistant_onsets] = True
+    # 🚨 [최종 교정됨] Time-Conditioned Peak Evaluation
+    # 1프레임(10ms)짜리 우발적 노이즈 스파이크를 배제하고, 저역대 파장 형성의 최소 물리 시간인 20ms(2프레임) 이상의 신뢰도 충족을 요구함.
+    artifact_resistant_onsets = []
+    for idx in valid_onsets:
+        end_eval_idx = min(idx + 5, len(confidence))
+        # 40ms(5프레임) 윈도우 내에서 confidence >= 0.4 인 프레임의 개수 산출
+        high_conf_frames = np.sum(confidence[idx:end_eval_idx] >= 0.4)
+        if high_conf_frames >= 2:
+            artifact_resistant_onsets.append(idx)
+            
+    if artifact_resistant_onsets:
+        onset_mask[np.array(artifact_resistant_onsets, dtype=int)] = True
 
     mask_low = (f0 < 80) & (confidence < 0.2)
     mask_mid = (f0 >= 80) & (f0 <= 200) & (confidence < 0.4)
