@@ -157,6 +157,8 @@ E |---------------------------------------------3--|---------3-----4-----3------
 | **Phase 8.4 (DSP Calibration: Artifact Masking & Wobble Tolerance)** | | |
 | **Artifact-resistant Onset Masking** | 음원 분리 왜곡(Artifact)에 의해 생성된 가짜 온셋(False Onset)이 옥타브 보정기의 파티션을 무의미하게 조각내어 에러 평탄화를 무력화시킴. | `librosa.onset`의 타격점 배열 중 피치 신뢰도(Confidence)가 0.4 미만인 프레임을 노이즈로 간주하여 마스크에서 배제하는 교차 필터링 도입. |
 | **Wobble Buffer Threshold Calibration** | 장3도(4반음) 이상의 도약을 배음 에러로 의심하여 지연 버퍼에 억류함으로써, 해머링 온 등 유효한 숏 노트가 증발(False Negative)함. | 펜타토닉 스케일 등 베이스의 관용적 연주를 반영하여 `WOBBLE_PITCH_JUMP_THRESHOLD`를 완전5도(7반음)로 상향 조절하여 음악적 수용 범위(Musical Interval Tolerance) 확보. |
+| **Phase 8.4 (DSP Deep Calibration: False Negative Elimination)** | | |
+| **Time-Conditioned Artifact Masking** | 타격 발생 '순간'의 단일 프레임 신뢰도만 검사할 경우, 슬랩 팝(Pop)이나 강한 타현 시 발생하는 자연스러운 비화성 마찰음을 기계적 노이즈로 오인하여 정상 숏 노트(Staccato)가 통째로 증발(False Negative)하는 근본적 결함 존재. | 타격점(Onset) 직후 40ms 구간의 '회복 신뢰도'를 평가(Post-Transient)하여 진짜 타격과 기계음을 식별함. 이때 1프레임(10ms)짜리 우발적 노이즈 스파이크(Max) 허점에 속지 않도록, `confidence >= 0.4`가 '최소 2프레임(20ms) 이상' 유지될 때만 유효 타격으로 승인하는 시계열 조건(Time-Conditioned Peak)을 적용. |
 
 
 ---
