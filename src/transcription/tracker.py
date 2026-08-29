@@ -7,10 +7,6 @@ import torchcrepe
 import gc
 
 def clean_octave_errors_smart(f0_array, onset_mask):
-    """
-    온셋(Onset) 경계를 기준으로 시계열 데이터를 독립 조각(Segment)으로 분할한 뒤,
-    각 조각의 중앙값(진짜 기음)을 기준으로 배음 에러(옥타브 도약)를 격리하여 평탄화합니다.
-    """
     f0_clean = f0_array.copy()
     mask = (f0_clean > 0) & (~np.isnan(f0_clean))
     
@@ -120,7 +116,6 @@ def get_f0_crepe_robust(audio, sr, hop_length=160, fmin=40, fmax=500, chunk_dura
                         raise RuntimeError("❌ CUDA OOM: 배치 사이즈를 1까지 줄였으나 메모리가 부족합니다.")
                     
                     current_batch //= 2
-                    print(f"⚠️ GPU OOM 감지. 배치 사이즈 {current_batch}로 재시도...")
                     audio_tensor = torch.tensor(audio_chunk).unsqueeze(0).to(device)
                 else:
                     raise e
@@ -152,15 +147,22 @@ def get_f0_crepe_robust(audio, sr, hop_length=160, fmin=40, fmax=500, chunk_dura
     onset_mask = np.zeros(len(f0), dtype=bool)
     valid_onsets = onset_frames[onset_frames < len(f0)]
     
-    # 🚨 [최종 교정됨] Time-Conditioned Peak Evaluation
-    # 1프레임(10ms)짜리 우발적 노이즈 스파이크를 배제하고, 저역대 파장 형성의 최소 물리 시간인 20ms(2프레임) 이상의 신뢰도 충족을 요구함.
+    # 🚨 [최종 교정됨] 시계열 연속성 검증 (Temporal Continuity Enforcement)
+    # 단순 합산(sum)이 허용하는 산발적 1프레임 노이즈 스파이크를 배제하고,
+    # '연속된 2프레임(최소 10ms 물리적 유지 구간)'에서 신뢰도 0.4 이상을 충족해야만 유효 타격으로 승인.
     artifact_resistant_onsets = []
     for idx in valid_onsets:
         end_eval_idx = min(idx + 5, len(confidence))
-        # 40ms(5프레임) 윈도우 내에서 confidence >= 0.4 인 프레임의 개수 산출
-        high_conf_frames = np.sum(confidence[idx:end_eval_idx] >= 0.4)
-        if high_conf_frames >= 2:
-            artifact_resistant_onsets.append(idx)
+        conf_window = confidence[idx:end_eval_idx] >= 0.4
+        
+        if len(conf_window) >= 2:
+            # 비트 연산(&)을 통해 인접 프레임 간의 연속적 True 여부 검사
+            if np.any(conf_window[:-1] & conf_window[1:]):
+                artifact_resistant_onsets.append(idx)
+        else:
+            # 오디오 배열 끝단의 극단적 엣지 케이스 방어
+            if np.any(conf_window):
+                artifact_resistant_onsets.append(idx)
             
     if artifact_resistant_onsets:
         onset_mask[np.array(artifact_resistant_onsets, dtype=int)] = True
