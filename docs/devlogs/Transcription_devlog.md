@@ -12,7 +12,7 @@
 > Phase 9 Planned (Source Separation Migration & Standard Notation Export)
 
 ## 1. Overview
-이 프로젝트는 믹스된 오디오에서 베이스를 분리하고 **실제 연주 가능한 타브 악보(ASCII Tab)**를 생성하는 End-to-End 파이프라인입니다. 
+이 프로젝트는 믹스된 오디오에서 베이스를 분리하고 **연주 가능한 타브 악보(ASCII Tab)**를 생성하는 End-to-End 파이프라인입니다. 
 
 초기(Phase 1)에는 `librosa.pyin`을 사용했으나, 분리된 베이스 음원(Stem)의 낮은 음질과 노이즈로 인해 정확도가 떨어지는 한계가 있었습니다. 현재(Phase 2)는 **SOTA 딥러닝 모델인 CREPE**를 도입하고, 베이스에 특화된 전/후처리(Pre/Post-processing) 로직을 통해 피치 인식률을 비약적으로 향상시켰습니다. 나아가 물리적 연주 가능성(Playability)을 고려한 최적 운지법 추천 모델(Phase 3)을 거쳐, 오디오의 물리적 시간을 음악적 박자(16분음표 격자)로 정렬하는 **리듬 양자화(Phase 4)**를 달성했습니다. 전체 시스템은 유지보수와 확장을 위해 불변 데이터 파이프라인(Immutable Data Pipeline)으로 재설계되었습니다. 최근(Phase 5)에는 추출된 원시 노트 이벤트(NoteEvent) 배열을 활용하여 물리적 타이밍과 운지법이 보존된 **표준 `.mid` (MIDI) 파일 렌더링 로직**을 신설하고, REST API와 연동되는 **Streamlit 기반의 시각화 프론트엔드 웹 데모**를 구축하여 사용자 접근성과 데이터 출력 다각화를 완수했습니다.
 
@@ -20,7 +20,7 @@
 
 최근(Phase 6.5 ~ 7)에는 파이프라인의 숨겨진 도메인 결함과 데이터 동기화(Synchronization) 문제를 심층 디버깅하여 해결했습니다. 5현 베이스 대역폭을 커버하기 위해 무리하게 확장했던 주파수 하한선(HPF, fmin)이 CREPE 모델의 훈련 임계치(32.7Hz)를 벗어나 음수 슬라이싱 버그를 유발하고, 초저역대 럼블(Rumble) 노이즈가 온셋 탐지기를 마스킹하여 대규모 노트 증발(Massive Note Omission)을 일으키는 아키텍처 결함을 발견했습니다. 이를 안정적 초기값(Golden State)으로 롤백하여 피치 인식 무결성을 복원했습니다. 또한, OOM 방지용 오디오 청크(Chunk) 분할 과정에서 발생하는 경계 프레임 중복 적재 버그(Time Desync)를 교정하고, 단일 베이스 트랙 입력 시 리듬 양자화기의 BPM 추출이 고주파 노이즈에 의해 오작동하는 엣지 케이스를 방어하여 파이프라인의 E2E 안정성을 달성했습니다. 추가적으로, 가상 악기(VSTi)에서 베이스 연타가 하나의 장음으로 뭉개지는 현상을 해결하기 위해 렌더러에 '단선율(Monophonic) 강제 커팅' 로직을 도입하고, Viterbi HMM 운지법 모델의 수학적 허점(시간 가중치 하한선 누락 등)을 학술적으로 엄밀하게 교정(Refinement)하여 최종 악보의 물리적 타당성을 강화했습니다. 나아가 리듬 양자화기(Rhythmic Quantizer)의 수학적 엄밀성을 재정립하여 음수 지속시간(Negative Duration)으로 인한 시스템 크래시를 원천 차단하고, 3연음(Triplet)과 고속 연타 구간의 다이내믹스를 보존하기 위해 오차 제곱합(SSE) 기반의 동적 격자 평가 및 그리드 기반 병합 로직을 도입하여 양자화 품질과 유연성을 끌어올렸습니다.
 
-최근(Phase 8) 벤치마크 평가를 가동하여, 파이프라인의 순수 DSP 채보 성능 상한선(F1-Score 63.03%)을 객관적으로 측정 및 동결했습니다. 이 과정에서 확인된 다양한 아키텍처 결함(양자화 패널티, 아티팩트 오인, 생체역학 경로 붕괴 등)을 해결하기 위해 'Time-Conditioned Peak 평가', 'Soft Quantization', 'Lazy 튜닝 탐지' 등의 고도화된 수리적 방어 로직을 구현하여 시스템을 리팩토링했습니다. 현재 채보 파이프라인의 구조적 완성도는 극한에 도달했으며, 남은 성능 병목은 전처리 단계인 음원 분리 모델(Demucs)의 기계적 왜곡(SAR)으로 완벽히 전이되었습니다.
+최근(Phase 8) 벤치마크 평가를 가동하여, 파이프라인의 순수 DSP 채보 성능 상한선(F1-Score 63.03%)을 객관적으로 측정 및 동결했습니다. 이 과정에서 확인된 다양한 아키텍처 결함(양자화 패널티, 아티팩트 오인, 생체역학 경로 붕괴 등)을 해결하기 위해 'Time-Conditioned Peak 평가', 'Soft Quantization', 'Lazy 튜닝 탐지' 등의 고도화된 수리적 방어 로직을 구현하여 시스템을 리팩토링했습니다. 현재 채보 파이프라인의 구조적 완성도는 극한에 도달했으며, 시스템의 정확도를 제약하는 가장 주요한 성능 병목은 전처리 단계인 음원 분리 모델(Demucs)의 기계적 왜곡(SAR)으로 식별되었습니다.
 
 ---
 
@@ -46,21 +46,21 @@
   - **VRAM/Speed Optimization:** `tiny` 모델 채택 및 30초 단위 Chunking 처리. 청크 경계 병합 시 이전 청크의 마지막 프레임을 강제 절삭(`[:-1]`)하여 프레임 중복 적재로 인한 타임스탬프 밀림(Time Desync) 현상을 차단함.
 
 ### Step 4: Error Correction (Post-processing)
-- **Pipeline Reordering (Phase 8.1):** 무음 구간의 저-신뢰도 노이즈(Garbage Pitch)가 옥타브 대푯값(Median) 연산을 오염시키는 것을 방지하기 위해, 신뢰도 기반 결측치(NaN) 마스킹을 옥타브 보정 필터 가동 **이전**으로 전면 재배치함. 이를 통해 100% 신뢰할 수 있는 순수한 피치 프레임들 사이에서만 화성 평탄화가 이루어지도록 파이프라인 순서를 교정함.
+- **Robust Pipeline Ordering:** 무음 구간의 저-신뢰도 노이즈(Garbage Pitch)가 옥타브 대푯값(Median) 연산을 오염시키는 것을 방지하기 위해, 신뢰도 기반 결측치(NaN) 마스킹을 옥타브 보정 필터 가동 이전에 선행하도록 파이프라인 순서를 강제함. 이를 통해 100% 신뢰할 수 있는 순수한 피치 프레임들 사이에서만 화성 평탄화가 이루어짐.
 - **Onset-Bounded Segmental Filtering:** 정적 트렌드 오염(Assimilation)을 방지하기 위해, 롤링 미디언을 폐기하고 전체 오디오를 타격점(Onset) 기준으로 독립된 조각(Segment)으로 격리하여 각 조각 내부의 중앙값을 대푯값으로 산출하는 구조로 개편.
 - **Smart Octave Correction (Onset-aware):** 의도된 옥타브 도약(Slap 등)은 고유의 Onset을 동반하므로 독립된 조각으로 분리되어 보존되며, 지속음 구간의 도약만 배음 에러로 간주하여 필터링 적용.
 
-### Step 5: Tab Generation & Smart Fingering (Phase 3, 8.3, 8.4)
+### Step 5: Tab Generation & Smart Fingering
 - **Note Debouncing (State Machine):** CREPE의 미세 피치 흔들림과 찰나의 결측치(NaN)로 인해 발생하는 비정상적 다중 노트 인식(False Polyphony) 현상을 상태 머신(State Machine) 기반 디바운스 로직으로 병합(Grouping). 최소 유지 시간(`min_duration`)과 결측치 관용도(`tolerance`)를 부여하여 노트를 정규화.
 - **Wobble Tolerance Buffer:** 온셋(Onset)이 동반되지 않은 모든 피치 변화는 예외 없이 50ms 지연 버퍼를 거치도록 강제함. 이를 통해 찰나의 배음 간섭으로 인한 롱톤 파편화를 억제하고, 비브라토나 벤딩 시 발생하는 미세 피치 이탈이 숏 노트로 난도질당해 증발(False Negative)하는 현상을 원천 방어.
 - **Viterbi HMM Decoder:** 은닉 마르코프 모델(HMM)을 통해 전체 연주의 '생체역학적 이동 비용(Cost)'을 최소화하는 최적 운지 경로 추론. 지판을 벗어나는 가비지 피치 유입 시, 무리하게 개방현으로 매핑하지 않고 시퀀스에서 영구 파기(Drop)하여 HMM 행렬 오염 방지.
 
-### Step 6: Rhythmic Quantization & Pipeline Architecture (Phase 4, 8.1, 8.4)
-- **BPM Tracking & PLP:** 믹스 음원이 아닌 단일 베이스 트랙 처리 시, 고주파 온셋 추적기(`fmax=8000`)가 노이즈를 비트로 오인하는 현상을 방지하기 위해 저주파 대역(`fmax=400`) 전용 추적기(Fallback)로 강제 우회시키는 안전장치 적용.
+### Step 6: Rhythmic Quantization & Pipeline Architecture
+- **BPM Tracking & PLP:** 베이스 라인의 잦은 당김음 오판을 방지하기 위해 MR(Bassless) 트랙을 최우선으로 분석함. 믹스 음원이 아닌 단일 베이스 트랙 처리 시, 고주파 온셋 추적기(`fmax=8000`)가 노이즈를 비트로 오인하는 현상을 방지하기 위해 저주파 대역(`fmax=400`) 전용 추적기(Fallback)로 강제 우회시키는 안전장치 적용.
 - **Grid Snapping (Soft Quantization):** 기계적인 강제 스냅으로 인한 정답 오차 이탈을 완화하고자 35ms 임계값 기반의 선택적 스냅(Soft Quantization) 도입. 동일 양자화 격자(Grid Index) 내에 배정된 노트들만 리듬 의존적으로 병합하되, 화음(Polyphony) 중첩 시 물리적 지속 시간이 가장 긴 노트를 덮어씌우는 최장음 우선(Longest-Note Priority) 로직 강제화.
 - **Immutable Pipeline:** 모듈 간 상태 오염을 방지하기 위해 `NoteEvent` 불변 데이터 클래스(Dataclass, `frozen=True`) 도입. 표현 계층을 분리하여 `Parser` $\rightarrow$ `Fingering` $\rightarrow$ `Quantization` $\rightarrow$ `Renderer` 로 이어지는 단방향 함수형 아키텍처 확립.
 
-### Step 7: MIDI Export & Web Integration (Phase 5)
+### Step 7: MIDI Export & Web Integration
 - **Physical-Time MIDI Rendering (`MidiRenderer`):**
   - **정밀한 Offset 동기화 (Unquantized):** 시각용 양자화(Quantization) 로직을 MIDI 추출에서는 완전히 배제. 파서가 디바운싱 프레임으로부터 역산한 정확한 물리적 시간(`time`, `duration`) 데이터를 신뢰하여 기계적 스냅 없이 그루브 보존.
   - **Velocity 매핑:** CREPE 모델의 예측 **신뢰도(`confidence`)**를 MIDI 타건 강도(`velocity`)로 스케일링하여 DAW에서 불확실한 노트 시각적 판별 지원.
@@ -68,7 +68,7 @@
   - **Backend:** `asyncio.Semaphore(1)`를 통한 GPU 직렬화 및 `BackgroundTasks` 활용. 즉각적인 `HTTP 202 Accepted` 반환 후 비동기 폴링 큐잉 아키텍처 개편.
   - **Frontend:** `st.session_state` 기반 상태 캐싱을 통해 Streamlit 재렌더링 시 발생하는 API 중복 호출 차단. 경로 파편화 방지를 위한 SSOT 디렉토리 맵핑.
 
-### Step 8: DSP Fine-Tuning & Symbolic Culling (Phase 6, 8.4)
+### Step 8: DSP Fine-Tuning & Symbolic Culling
 - **Confidence-Aware Retriggering:** 피치(Hz) 변화 없이 진폭만 미세하게 흔들리는 베이스 연타를 탐지하기 위해, 예측 신뢰도의 순간 하락(< 0.5)을 타격 지표로 교차 검증하는 상태 머신 고도화.
 - **Time-Conditioned Artifact Masking:** 음원 분리 왜곡(Artifact)에 의해 생성된 가짜 타격점을 걸러내기 위해, 타격 직후 40ms 구간에서 `confidence >= 0.4`가 **'연속된 2프레임(최소 10ms 물리적 유지 구간)'** 동안 충족될 때만 실제 타격으로 승인. 산발적인 1프레임 딥러닝 노이즈 스파이크 완벽 차단.
 - **Garbage Pitch Culling:** 슬랩 팝(Pop) 타격 찰나의 비화성 마찰음을 가짜 피치로 오인하는 "띠-딩" 현상을 막기 위해, 기호 영역에서 극단적으로 짧고 피치 도약이 큰 패턴을 기계적으로 병합(Merge)하는 후처리 필터 가동.
@@ -87,13 +87,13 @@ G |------------------------------------------------|----------------------------
 D |---0-----------------------0-----0--------------|------------------------------------------------|
 A |------------------------------------------------|---3--------3--------------3-----3--------------|
 E |---------------------------------------------3--|---------3-----4-----3--------------------------|
-B |------------------------------------------------|------------------------------------------------|
 ```
 
 ---
+
 ## 4. Challenges & Solutions (Troubleshooting)
 
-개발 과정에서 발생한 주요 문제점과 해결 방안입니다.
+개발 과정에서 발생한 주요 문제점과 해결 방안입니다. 본 트러블슈팅 테이블은 개발 과정을 보존하기 위해 작성되었습니다. 파이프라인의 특성상 이전 페이즈(Phase)에서 내린 최적화 결정이 시스템 통합(E2E) 후 예기치 않은 부작용을 유발할 수 있으며, 이 경우 후속 페이즈에서 이전의 결정을 롤백(Rollback)하거나 전면 재수정한 이력까지 기록하여 설계 의도의 진화 과정을 기록합니다.
 
 | Issue | Cause | Solution |
 | :--- | :--- | :--- |
@@ -148,6 +148,7 @@ B |------------------------------------------------|----------------------------
 | **양자화 후 채보 정확도(F1) 하락 가설** | 기계적인 강제 스냅(Hard Snapping)으로 인한 엇박자 정답 이탈, 16분음표 격자 맵핑 충돌 및 과도한 노트 병합이 F1 스코어 하락의 주요인일 것으로 추정됨. | 물리적 평가 시간과 시각적 맵핑 인덱스를 분리(Decoupling)하고, **35ms 임계값 기반의 선택적 스냅(Soft Quantization)** 구현. |
 | **고품질 트랙의 F1 스코어 0% 수렴 (Zero-F1 Anomaly)** | 옥타브 보정기가 선행 실행되어, 무음 구간의 가비지 피치(노이즈)가 옥타브 대푯값(Median) 계산을 오염시키는 순서 역전 버그 발견. | 신뢰도 마스킹 연산을 옥타브 보정 로직 이전으로 재배치하여, 순수한 피치 데이터 위에서만 화성 평탄화가 이루어지도록 로직을 교정함. |
 | **이기종 피치 간 다성부 중첩 (Polyphony Overlap)** | 양자화 후 피치가 다른 인접 노트들의 간격이 극도로 짧을 때, 서스테인 강제 할당 수식(`max(0.02, min)`)에 의해 뒤 노트의 시작점보다 앞 노트의 종료점이 늦어지는 물리적 침범 현상 발견. | 오버랩 클램핑(Clamp) 수식을 조절하여, 두 노트의 실제 간격(`available_gap`)을 바탕으로 앞 노트의 지속시간을 동적 절단하되 시스템 붕괴를 막기 위한 최소 한계치(10ms)만 보장하도록 수정. |
+| **코드 컨벤션 오염 (Dead Code)** | 과거 실험 후 방치된 사용되지 않는 메서드 및 Kwargs가 모듈 내부에 잔존. | `quantization.py`의 `_apply_musical_smoothing` 및 `tracker.py` 호출부의 미사용 파라미터를 일괄 소거하여 유지보수성 확보. |
 | **Phase 8.2 (Bugfix & Architectural Compliance)** | | |
 | **5-String Bass Infrastructure Expansion** | Drop D 및 5현(Low B) 베이스 입력 시 발생하던 Viterbi HMM 디코더 및 렌더러의 `KeyError` 크래시 발생. | `PitchParser` 튜닝 배열을 `[23, 28, 33, 38, 43]`으로 확장하고, `TabRenderer`의 배열 규격을 5현 표준으로 일괄 상향 동기화함. |
 | **Grid-based Merging Enforcer** | `quantization.py` 내 하드코딩된 절대시간(50ms) 병합 로직으로 인해 BPM 150 이상 곡의 16분음표 스타카토 연타 시 뭉개짐(False Legato) 현상 유발. | 기존 절대시간 로직을 전면 폐기하고, ADR-009 규약에 명시된 '동일 양자화 격자(Grid Index)' 기반 조건식으로 교정하여 원천 차단. |
@@ -155,8 +156,10 @@ B |------------------------------------------------|----------------------------
 | **Dynamic Tuning Detection (Lazy Evaluation)** | 전역 하드코딩된 5현 렌더링이 4현 악보의 가독성을 파괴하는 안티패턴 발생. | `PitchParser`가 신뢰도 높은 피치 데이터를 스캔해 E1(MIDI 28) 미만의 타현이 있을 경우에만 5현 매핑을 개방하며, `TabRenderer`는 B현(인덱스 0) 데이터의 실제 존재 여부를 평가(Lazy Evaluation)하여 유동적으로 4/5현 템플릿을 생성하도록 개선. |
 | **Viterbi Garbage Pitch Dropping** | 지판 매핑이 불가능한 가비지 피치(에러) 유입 시 강제로 개방현 `(0, 0)`을 할당하여 DP 행렬 오염(Penalty 붕괴) 및 전역 최적해 훼손을 유발함. | 유효 후보군이 없는 이벤트는 Viterbi 디코딩 이전의 이벤트 시퀀스에서 영구 파기(Drop)하여 생체역학 전역 최적해(Global Optimal Path)를 안전하게 보존하도록 로직 교정. |
 | **Phase 8.4 (DSP Deep Calibration: False Negative Elimination)** | | |
-| **Post-Transient Artifact Masking (Continuity Enforcement)** | 타격 발생 '순간'의 단일 프레임 신뢰도만 검사할 경우, 슬랩 팝(Pop)이나 강한 타현 시 발생하는 자연스러운 비화성 마찰음을 기계적 노이즈로 오인하여 정상 숏 노트(Staccato)가 통째로 증발(False Negative)하는 근본적 결함 존재. | 타격점(Onset) 직후 40ms 구간의 '회복 신뢰도'를 평가(Post-Transient)하여 진짜 타격과 기계음을 식별함. 이때 산발적인 1프레임 노이즈 스파이크 허점(Sum/Max)에 속지 않도록, `confidence >= 0.4`가 **'연속된 2프레임(최소 10ms 물리적 유지 구간)'**에서 동시 충족될 때만 유효 타격으로 승인하는 시계열 연속성 검사(Temporal Continuity)를 적용. |
-| **Buffer Routing Enforcement** | 버퍼 우회 로직으로 인해 비브라토나 미세 벤딩 시 피치 이탈이 1프레임 단위로 즉시 절단되어 삭제되는 증발 현상(Vibrato Evaporation) 발견. | 피치 도약 임계값 예외를 전면 삭제. 모든 온셋 없는 피치 변화를 50ms 지연 버퍼에 통과시켜 비브라토의 진동은 흡수하고 실제 스케일 이동만 분리하도록 강제함. |
+| **Wobble Buffer Threshold Calibration (1차 시도)** | 장3도(4반음) 이상의 도약을 배음 에러로 의심하여 지연 버퍼에 억류함으로써, 해머링 온 등 유효한 숏 노트가 증발(False Negative)함. | 펜타토닉 스케일 등 베이스의 관용적 연주를 반영하여 예외 임계값을 완전5도(7반음)로 상향 조절하여 수용 범위 확보. |
+| **Buffer Routing Enforcement (최종 교정)** | 위 7반음 상향 조치에도 불구하고, 비브라토나 미세 벤딩 시 피치 이탈이 여전히 1프레임 단위로 즉시 절단되어 삭제되는 증발 현상(Vibrato Evaporation) 잔존. | 피치 도약 임계값 예외를 **전면 삭제**. 온셋이 없는 모든 피치 변화를 50ms 지연 버퍼에 무조건 통과시켜 진동은 흡수하고 스케일 이동만 분리하도록 로직을 강제함. |
+| **Max-Confidence Artifact Masking (1차 시도)** | 타격 발생 '순간'의 단일 프레임 신뢰도만 검사 시, 슬랩 팝(Pop)의 자연스러운 비화성 마찰음을 노이즈로 오인해 정상 숏 노트가 증발함. | 타격점 직후 40ms 구간의 '최대 신뢰도(Max Confidence)'를 평가(Post-Transient)하도록 교정하여 진짜 타격을 승인함. |
+| **Post-Transient Continuity Enforcement (최종 교정)** | 최댓값(Max) 신뢰도를 검사할 경우, 저음역대 물리적 파장 주기를 위반하는 1프레임(10ms)짜리 CNN 노이즈 스파이크까지 타격으로 통과시키는 음향학적 모순 발생. | 산발적인 노이즈 스파이크 허점(Max)에 속지 않도록, `confidence >= 0.4`가 **'연속된 2프레임(최소 10ms 물리적 유지 구간)'**에서 동시 충족될 때만 유효 타격으로 승인하는 시계열 연속성 검사(Temporal Continuity) 적용. |
 | **Strict Monophonic Enforcer** | 양자화 격자 병합 시 다른 피치가 동일 격자에 묶일 경우 이를 방치하여 MIDI 출력 단계에서 화음(Polyphony)이 재생되는 아키텍처 붕괴 확인. | 동일 격자 내 피치 충돌 시 원래의 물리적 지속 시간(Duration)이 더 긴 음을 덮어씌우는 최장음 우선(Longest-Note Priority) 로직을 삽입하여 단선율 무결성을 강제함. |
 
 ---
