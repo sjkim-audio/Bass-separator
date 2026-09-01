@@ -47,22 +47,22 @@
 
 ---
 
-### Phase 6. 향후 과제: 평가 지표 정착 및 MLOps 고도화 (Future Works)
+### Phase 6. 향후 과제: 프로덕션 아키텍처 격상 및 시스템 한계 돌파 (Future Works)
 > **Status:** Planned
-> **Goal:** 객관적인 데이터(Baseline)를 기반으로 시스템의 실질적 유용성을 검증하고, 오디오 도메인 특화 모델 파인튜닝 로드맵을 가동한다.
+> **Goal:** 단일 노드 기반의 코어 파이프라인을 대규모 트래픽 및 운영 환경에 적합한 프로덕션 레벨 아키텍처로 고도화하고, 전처리 병목을 해소하여 시스템의 최종 채보 정확도 상한선을 돌파한다.
 
-**우선순위 1: Baseline F1-Score 도출 및 오답 분류 체계화**
-*   도메인이 정규화된 정량 평가기(`evaluator.py`)를 Slakh2100 합성 데이터셋에 가동하여 양자화 전후의 Onset-Pitch F1-Score 기준점(Baseline)을 측정합니다.
-*   False Positive(노이즈 오인), False Negative(노트 증발) 등 지배적 오답 유형(Taxonomy)을 분류하여 후속 알고리즘 개선의 근거로 활용합니다.
+**우선순위 1: 비동기 서빙 아키텍처 및 상태 영속화 (Async Serving & Persistence)**
+*   현재 단일 노드(Semaphore) 기반의 동기적 자원 할당이 가지는 처리량(Throughput) 한계를 타파하기 위해, Celery와 Redis를 도입하여 GPU 추론 계층을 백그라운드 워커로 완전히 분리 및 격리합니다.
+*   RDBMS(PostgreSQL 등)를 연동하여 작업 생애주기(Lifecycle)를 영속화(Persistence)하고, 예기치 않은 워커 다운타임 발생 시 작업을 안전하게 복구(Self-healing)하는 무결성 보장 서빙 아키텍처를 구축합니다.
 
-**우선순위 2: 리얼 월드 데이터셋 교차 검증 (Real-world Cross Validation)**
-*   합성 데이터(Slakh2100) 평가가 가지는 과적합 위험 및 앰프 험(Hum), 프렛 버즈(Fret buzz) 대응력 부재 한계를 방어하기 위해 수행합니다.
-*   소규모의 실제 어쿠스틱/일렉트릭 베이스 연주 소스를 별도로 수집 및 주석 처리하여, 합성 데이터 환경과의 체감 성능 괴리를 교차 검증합니다.
+**우선순위 2: SOTA 음원 분리 마이그레이션 (Source Separation Bottleneck Breakthrough)**
+*   벤치마크 평가를 통해 전체 파이프라인의 최종 성능 병목이 '음원 분리 모델의 기계적 왜곡(SAR/SDR)'에 있음을 식별함에 따라, 현존 SOTA 모델인 대역별 어텐션 기반 `BS-RoFormer`로 전처리 엔진을 마이그레이션합니다.
+*   시스템 설계 단계에서 확립한 '코어 로직 격리(Decoupling)' 원칙을 바탕으로, 후속 파이프라인(Pitch Tracking ~ Quantization)의 코드 수정 없이 거대 가중치 모델을 유연하게 교체(Hot-swap) 적용하여 채보 정확도의 수학적 상한선을 돌파합니다.
 
-**우선순위 3: 표준 악보 직렬화 엔진 구축 (Standard Notation Export)**
-*   단순 ASCII 텍스트 콘솔 출력을 넘어 `MusicXML`(`.xml`) 또는 `GuitarPro`(`.gp5`) 형식의 파일을 생성하는 직렬화 계층을 신설합니다.
-*   이 과정에서 원본의 리듬을 보존하려는 기조와 악보 가독성을 확보하려는 기조 간의 트레이드오프를 조율하는 '음악적 평탄화(Musical Smoothing)' 휴리스틱을 연구합니다.
+**우선순위 3: 표준 악보 직렬화 계층 신설 (Standard Notation Serialization)**
+*   단순 ASCII 텍스트 콘솔 출력을 넘어 `MusicXML`(`.xml`) 또는 `GuitarPro`(`.gp5`) 형식의 파일을 직접 렌더링하는 직렬화 계층을 신설합니다.
+*   원본의 마이크로 타이밍(Micro-timing) 보존과 악보의 시각적 가독성 사이의 트레이드오프를 조율하는 '음악적 평탄화(Musical Smoothing)' 휴리스틱을 연구하여 실용성을 극대화합니다.
 
-**우선순위 4: 데이터 증강(Data Augmentation) 및 파인튜닝 파이프라인**
-*   사전 학습 모델(Demucs)이 특수 환경(드롭 튜닝, 강한 킥 드럼 잔향 등)에서 겪는 간섭(Bleeding) 한계를 극복하기 위한 중장기 과제입니다.
-*   `librosa` 등을 활용해 타 악기 트랙을 프로그래매틱하게 믹싱/변형하는 파이프라인을 구축하여 모델의 노이즈 강건성을 높입니다.
+**우선순위 4: 데이터옵스 및 시스템 관측성 확보 (DataOps & Observability)**
+*   대규모 오디오 데이터셋과 평가 지표의 버전을 엄밀하게 통제하기 위해 DVC(Data Version Control) 기반의 데이터 리니지(Data Lineage)를 구축하여 실험 재현성(Reproducibility)을 확보합니다.
+*   서빙 환경에서의 API 지연 시간, 구간별 실패율, 피크 VRAM 점유율 등을 추적하는 관측성(Observability) 모니터링 체계를 도입하여 데이터 중심(Data-centric)의 시스템 안정성 평가 기준을 정립합니다.
