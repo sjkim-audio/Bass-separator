@@ -105,6 +105,7 @@ def get_f0_crepe_robust(audio, sr, hop_length=160, fmin=40, fmax=500, chunk_dura
                     )
                 success = True
             except RuntimeError as e:
+                # OOM 발생 시에만 강제 가비지 컬렉션 및 캐시 초기화 수행
                 if "out of memory" in str(e).lower():
                     del audio_tensor
                     if device == 'cuda':
@@ -130,9 +131,9 @@ def get_f0_crepe_robust(audio, sr, hop_length=160, fmin=40, fmax=500, chunk_dura
         f0_list.append(f0_chunk)
         confidence_list.append(conf_chunk)
         
-        del audio_tensor, f0_chunk, conf_chunk
-        if device == 'cuda':
-            torch.cuda.empty_cache()
+        # 🔴 [핵심 수정] 정상 추론 성공 루프 끝단에 방치되어 있던 
+        # del audio_tensor, f0_chunk, conf_chunk 및 torch.cuda.empty_cache() 전면 삭제.
+        # 파이토치의 C++ 백엔드 할당자(Allocator)가 메모리를 자연스럽게 덮어쓰도록 유도하여 병목 해소.
             
     f0 = np.concatenate(f0_list)
     confidence = np.concatenate(confidence_list)
@@ -147,20 +148,15 @@ def get_f0_crepe_robust(audio, sr, hop_length=160, fmin=40, fmax=500, chunk_dura
     onset_mask = np.zeros(len(f0), dtype=bool)
     valid_onsets = onset_frames[onset_frames < len(f0)]
     
-    # 🚨 [최종 교정됨] 시계열 연속성 검증 (Temporal Continuity Enforcement)
-    # 단순 합산(sum)이 허용하는 산발적 1프레임 노이즈 스파이크를 배제하고,
-    # '연속된 2프레임(최소 10ms 물리적 유지 구간)'에서 신뢰도 0.4 이상을 충족해야만 유효 타격으로 승인.
     artifact_resistant_onsets = []
     for idx in valid_onsets:
         end_eval_idx = min(idx + 5, len(confidence))
         conf_window = confidence[idx:end_eval_idx] >= 0.4
         
         if len(conf_window) >= 2:
-            # 비트 연산(&)을 통해 인접 프레임 간의 연속적 True 여부 검사
             if np.any(conf_window[:-1] & conf_window[1:]):
                 artifact_resistant_onsets.append(idx)
         else:
-            # 오디오 배열 끝단의 극단적 엣지 케이스 방어
             if np.any(conf_window):
                 artifact_resistant_onsets.append(idx)
             
