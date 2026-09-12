@@ -5,6 +5,7 @@ import shutil
 import asyncio
 import json
 from pathlib import Path
+from contextlib import asynccontextmanager
 
 # 윈도우 환경 DLL 충돌 방지
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
@@ -19,13 +20,6 @@ from src.renderers.midi_renderer import MidiRenderer
 from src.core.demucs_runner import separate_and_generate_stems
 from src.core.pipeline import run_transcription_pipeline
 
-app = FastAPI(
-    title="Bass Transcription API",
-    description="Bass separation and E2E transcription with concurrency control."
-)
-# 정적 파일 서빙: outputs 폴더 전체를 라우팅
-app.mount("/api/v1/downloads", StaticFiles(directory="outputs"), name="downloads")
-
 # 경로 설정
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_DIR = os.path.join(BASE_DIR, "temp_uploads")
@@ -33,6 +27,31 @@ RESULT_DIR = "outputs"
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(RESULT_DIR, exist_ok=True)
+
+# 🔴 [핵심 보완 2] 서버 부팅 시 고아 데이터(Zombie) 일괄 정리 로직
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    print("🧹 [Startup] 이전 세션의 고아(Orphan) 태스크 디렉토리를 스캔합니다...")
+    now = time.time()
+    if os.path.exists(RESULT_DIR):
+        for item in os.listdir(RESULT_DIR):
+            item_path = os.path.join(RESULT_DIR, item)
+            if os.path.isdir(item_path):
+                # 생성된 지 1시간(3600초)이 지난 폴더 강제 삭제
+                if now - os.path.getmtime(item_path) > 3600:
+                    shutil.rmtree(item_path, ignore_errors=True)
+                    print(f"🗑️ [Startup] 만료된 태스크 삭제 완료: {item}")
+    yield
+    # Shutdown 시 동작 로직 (현재는 불필요)
+
+app = FastAPI(
+    title="Bass Transcription API",
+    description="Bass separation and E2E transcription with concurrency control.",
+    lifespan=lifespan
+)
+
+# 정적 파일 서빙: outputs 폴더 전체를 라우팅
+app.mount("/api/v1/downloads", StaticFiles(directory="outputs"), name="downloads")
 
 # GPU OOM 방어: 동시 추론 실행을 1개로 제한하는 세마포어
 gpu_semaphore = asyncio.Semaphore(1)
@@ -52,6 +71,12 @@ def save_result_to_disk(save_path: Path, data: dict):
         json.dump(data, f, indent=4, ensure_ascii=False)
     print(f"💾 결과 저장 완료: {save_path}")
 
+async def ttl_cleanup(task_dir: Path, delay_sec: int = 3600):
+    """지정된 시간(TTL) 경과 후 태스크 샌드박스를 강제 삭제하여 스토리지를 확보합니다."""
+    await asyncio.sleep(delay_sec)
+    if task_dir.exists():
+        shutil.rmtree(task_dir, ignore_errors=True)
+        print(f"🧹 [TTL 클린업] 스토리지 최적화: 만료된 태스크 삭제 완료 ({task_dir})")
 
 async def run_pipeline_task(task_id: str, temp_file_path: str):
     # [Task 격리] 요청별 전용 샌드박스 디렉토리 생성
@@ -63,13 +88,13 @@ async def run_pipeline_task(task_id: str, temp_file_path: str):
     
     async with gpu_semaphore:
         try:
-            # 1. 4-Stem 분리 및 MR 병합 로직 호출 (샌드박스 경로 주입)
+            # 1. 4-Stem 분리 및 MR 병합 로직 호출
             raw_bass_path, raw_bassless_path = await separate_and_generate_stems(
                 temp_file_path, 
                 output_dir=str(task_out_dir)
             )
             
-            # [Cleanup & Isolation] 핵심 파일만 샌드박스 루트로 이동하고 가비지 스템 폴더 삭제
+            # [Cleanup & Isolation] 핵심 파일만 샌드박스 루트로 이동
             new_bass_path = task_out_dir / "bass.wav"
             new_bassless_path = task_out_dir / "bassless_backing.wav"
             
@@ -80,7 +105,6 @@ async def run_pipeline_task(task_id: str, temp_file_path: str):
             
             bass_path = str(new_bass_path)
 
-            # Demucs의 임시 폴더(htdemucs) 전체 통삭제로 디스크 절약 및 파편화 방지
             htdemucs_dir = task_out_dir / "htdemucs"
             if htdemucs_dir.exists():
                 shutil.rmtree(htdemucs_dir, ignore_errors=True)
@@ -101,7 +125,7 @@ async def run_pipeline_task(task_id: str, temp_file_path: str):
                 MidiRenderer.render_midi(fingered_events, bpm, str(midi_output_path))
             else:
                 print(f"⚠️ [{task_id}] 베이스 노트가 감지되지 않아 MIDI 생성을 건너뜁니다.")
-                ascii_tab = "⚠️ 감지된 베이스 노트가 없습니다. (오디오 볼륨이 너무 작거나 베이스가 없는 구간일 수 있습니다.)"
+                ascii_tab = "⚠️ 감지된 베이스 노트가 없습니다."
 
             note_dtos = [
                 BassNoteEvent(
@@ -116,7 +140,6 @@ async def run_pipeline_task(task_id: str, temp_file_path: str):
 
             processing_time_ms = (time.perf_counter() - start_time_perf) * 1000
             
-            # [응답 경로 정규화] 모든 다운로드 URL이 task_id 격리 폴더를 가리키도록 설정
             response_data = TranscriptionResponse(
                 bpm=bpm,
                 ascii_tab=ascii_tab,
@@ -130,7 +153,6 @@ async def run_pipeline_task(task_id: str, temp_file_path: str):
                 events=note_dtos
             )
 
-            # JSON 파일 샌드박스 내부 저장
             save_result_to_disk(task_out_dir / f"{task_id}.json", response_data.model_dump())
             
         except Exception as e:
@@ -139,8 +161,9 @@ async def run_pipeline_task(task_id: str, temp_file_path: str):
             save_result_to_disk(task_out_dir / f"{task_id}.json", error_payload)
             
         finally:
-            # 원본 업로드 임시 파일만 안전하게 삭제
             cleanup_files(temp_file_path)
+            # 🔴 [핵심 보완 1] 세마포어 대기열(Queue)을 모두 통과하고 처리가 끝난 직후에 타이머 가동
+            asyncio.create_task(ttl_cleanup(task_out_dir, 3600))
 
 @app.post("/api/v1/transcribe")
 async def transcribe_audio(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
@@ -156,6 +179,7 @@ async def transcribe_audio(background_tasks: BackgroundTasks, file: UploadFile =
     with open(temp_file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
+    # 태스크 큐에 작업만 할당 (TTL 타이머는 여기서 가동하지 않음)
     background_tasks.add_task(run_pipeline_task, task_id, temp_file_path)
 
     return JSONResponse(
@@ -165,14 +189,12 @@ async def transcribe_audio(background_tasks: BackgroundTasks, file: UploadFile =
 
 @app.get("/api/v1/tasks/{task_id}")
 async def get_status(task_id: str):
-    # 샌드박스 격리 폴더 내부의 결과 확인
     result_path = Path(RESULT_DIR) / task_id / f"{task_id}.json"
     
     if result_path.exists():
         with open(result_path, "r", encoding="utf-8") as f:
             data = json.load(f)
         
-        # 내부 로직 에러로 인해 FAILED가 저장된 경우 그대로 반환
         if data.get("status") != "FAILED":
             data["status"] = "SUCCESS"
         return data
