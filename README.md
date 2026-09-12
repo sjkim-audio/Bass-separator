@@ -113,7 +113,6 @@ python -m src.evaluation.run_batch_eval \
 │   │   ├── fingering.py     # Viterbi HMM 기반 최적 운지법(Fret/String) 탐색 알고리즘
 │   │   ├── parser.py        # 오디오 데이터 파싱 및 기호 영역 후처리 (Garbage Pitch Culling)
 │   │   ├── quantization.py  # BPM 기반 밀리초(ms) 물리량의 음악적 양자화 (동적 격자 스냅)
-│   │   ├── tab_generator.py # 노트 이벤트를 악보 좌표계로 매핑
 │   │   └── tracker.py       # CREPE 기반 피치 트래킹(Pitch Detection) 및 옥타브 보정
 │   ├── augmentation.py   # 파인튜닝용 오디오 데이터 합성 및 증강 모듈
 │   ├── env_setup.py      # 의존성 및 환경 구축 스크립트

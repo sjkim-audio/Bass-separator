@@ -7,36 +7,53 @@ class PitchParser:
     def __init__(self, sr: int = 16000, hop_length: int = 160):
         self.sr = sr
         self.hop_length = hop_length
-        self.tuning: List[int] = [28, 33, 38, 43] # E, A, D, G
+        self.tuning_map: List[Tuple[int, int]] = [
+            (0, 23), (1, 28), (2, 33), (3, 38), (4, 43)
+        ]
+        self.is_5_string = False
 
     def get_fret_candidates(self, hz: float) -> List[Tuple[int, int]]:
         if hz <= 0 or np.isnan(hz):
             return []
         midi_note = int(round(librosa.hz_to_midi(hz)))
-        return [(i, midi_note - start) for i, start in enumerate(self.tuning) if 0 <= midi_note - start <= 24]
+        candidates = []
+        for s_idx, start_midi in self.tuning_map:
+            if not self.is_5_string and s_idx == 0:
+                continue
+            fret = midi_note - start_midi
+            if 0 <= fret <= 24:
+                candidates.append((s_idx, fret))
+        return candidates
 
     def choose_fret_greedy(self, candidates: List[Tuple[int, int]]) -> Optional[Tuple[int, int]]:
         if not candidates: return None
         return min(candidates, key=lambda x: x[1])
 
     def parse_f0_to_events(self, f0_array: np.ndarray, confidence_array: np.ndarray, onset_mask: np.ndarray) -> List[NoteEvent]:
-        events = []
-        frame_time = self.hop_length / self.sr
-        current_note = None
-        note_start_frame = 0
-        blank_counter = 0
-
-        # [공학적 조율]
-        # MIN_DURATION_FRAMES: 7 (70ms) 유지. 슬라이드 시 발생하는 띠리링(Fragmentation) 현상 방어선.
-        # TOLERANCE_FRAMES: 15.0 (150ms)로 상향. 서스테인 끝자락의 신뢰도 하락 구간을 관성으로 버티게 함.
-        # 기존 설정값 유지 (결함이 있는 RETRIGGER 관련 변수 삭제)
-        MIN_DURATION_FRAMES = 7
-        TOLERANCE_FRAMES = 15.0
-        LATENCY_COMP_SEC = 0.005
-
         valid_mask = (f0_array > 0) & (~np.isnan(f0_array))
         midi_array = np.full(len(f0_array), np.nan)
         midi_array[valid_mask] = np.round(librosa.hz_to_midi(f0_array[valid_mask]))
+
+        robust_mask = valid_mask & (confidence_array > 0.5)
+        min_midi = np.nanmin(midi_array[robust_mask]) if np.any(robust_mask) else 28
+        self.is_5_string = min_midi < 28
+
+        events = []
+        frame_time = self.hop_length / self.sr
+        
+        current_note = None
+        note_start_frame = 0
+        blank_counter = 0
+        
+        wobble_note = None
+        wobble_counter = 0
+        WOBBLE_TOLERANCE_FRAMES = 5  
+        # 완전5도(7반음) 이하의 변동은 정상 연주(스케일 이동)로 승인하여 버퍼 우회
+        WOBBLE_PITCH_JUMP_THRESHOLD = 7 
+
+        MIN_DURATION_FRAMES = 7
+        TOLERANCE_FRAMES = 15.0
+        LATENCY_COMP_SEC = 0.005
 
         for i, midi_val in enumerate(midi_array):
             current_onset = onset_mask[i]
@@ -45,16 +62,15 @@ class PitchParser:
                 midi_note = int(midi_val)
                 conf_val = confidence_array[i]
                 
-                # [수정 사항 1] 여기서 blank_counter = 0을 실행하던 것을 삭제
-                
                 if current_note is None:
                     current_note = midi_note
                     note_start_frame = i
+                    wobble_note = None
+                    wobble_counter = 0
+                    blank_counter = 0
                     
-                # 피치 변경 또는 Onset 감지 시 노트 분할
-                elif (current_note != midi_note) or (current_onset is True):
-                    # [수정 사항 2] 누적된 무음(blank_counter) 구간을 빼고 정확한 종료 시점(end_idx) 도출
-                    end_idx = i - int(blank_counter)
+                elif current_onset is True:
+                    end_idx = i - int(blank_counter) - int(wobble_counter)
                     duration_frames = end_idx - note_start_frame
                     
                     if duration_frames >= MIN_DURATION_FRAMES:
@@ -62,17 +78,59 @@ class PitchParser:
                         duration_sec = float(duration_frames * frame_time)
                         comp_start_time = max(0, (note_start_frame * frame_time) - LATENCY_COMP_SEC)
                         events.append(self._create_event(current_note, comp_start_time, duration_sec, conf_avg))
-                    
+                        
                     current_note = midi_note
                     note_start_frame = i
-                
-                # [수정 사항 3] 노트 증발의 원흉인 RETRIGGER_CONF_THRESH(신뢰도 기반 컷오프) 블록 완전 삭제
-                
-                # [수정 사항 4] 이전 노트 길이에 대한 모든 논리 판정이 끝난 후 안전하게 무음 카운터 리셋
-                blank_counter = 0 
-                
+                    wobble_note = None
+                    wobble_counter = 0
+                    blank_counter = 0
+                    
+                elif midi_note != current_note:
+                    if abs(midi_note - current_note) <= WOBBLE_PITCH_JUMP_THRESHOLD:
+                        end_idx = i - int(blank_counter)
+                        duration_frames = end_idx - note_start_frame
+                        
+                        if duration_frames >= MIN_DURATION_FRAMES:
+                            conf_avg = float(np.mean(confidence_array[note_start_frame:end_idx]))
+                            duration_sec = float(duration_frames * frame_time)
+                            comp_start_time = max(0, (note_start_frame * frame_time) - LATENCY_COMP_SEC)
+                            events.append(self._create_event(current_note, comp_start_time, duration_sec, conf_avg))
+                            
+                        current_note = midi_note
+                        note_start_frame = i
+                        wobble_note = None
+                        wobble_counter = 0
+                        blank_counter = 0
+                    else:
+                        if wobble_note == midi_note:
+                            wobble_counter += 1
+                        else:
+                            wobble_note = midi_note
+                            wobble_counter = 1
+                            
+                        if wobble_counter >= WOBBLE_TOLERANCE_FRAMES:
+                            end_idx = i - int(wobble_counter) + 1 - int(blank_counter)
+                            duration_frames = end_idx - note_start_frame
+                            
+                            if duration_frames >= MIN_DURATION_FRAMES:
+                                conf_avg = float(np.mean(confidence_array[note_start_frame:end_idx]))
+                                duration_sec = float(duration_frames * frame_time)
+                                comp_start_time = max(0, (note_start_frame * frame_time) - LATENCY_COMP_SEC)
+                                events.append(self._create_event(current_note, comp_start_time, duration_sec, conf_avg))
+                                
+                            current_note = wobble_note
+                            note_start_frame = i - int(wobble_counter) + 1
+                            wobble_note = None
+                            wobble_counter = 0
+                            blank_counter = 0
+                else:
+                    wobble_note = None
+                    wobble_counter = 0
+                    blank_counter = 0
             else:
                 blank_counter += 1
+                wobble_counter = 0  
+                
                 if current_note is not None and blank_counter >= TOLERANCE_FRAMES:
                     end_idx = i - int(blank_counter)
                     duration_frames = end_idx - note_start_frame
@@ -84,7 +142,7 @@ class PitchParser:
                     current_note = None
                     
         if current_note is not None:
-            end_idx = len(midi_array)
+            end_idx = len(midi_array) - int(blank_counter) - int(wobble_counter)
             duration_frames = end_idx - note_start_frame
             if duration_frames >= MIN_DURATION_FRAMES:
                 conf = float(np.mean(confidence_array[note_start_frame:end_idx]))

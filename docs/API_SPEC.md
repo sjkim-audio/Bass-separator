@@ -77,9 +77,9 @@
     "task_id": "550e8400-e29b-41d4-a716-446655440000",
     "model_version": "demucs-htdemucs-v4.1_crepe-tiny",
     "processing_time_ms": 14520.35,
-    "bass_audio_url": "/api/v1/downloads/550e8400.../bass",
-    "bassless_audio_url": "/api/v1/downloads/550e8400.../bassless",
-    "midi_url": "/api/v1/downloads/550e8400....mid"
+    "bass_audio_url": "/api/v1/downloads/550e8400-e29b-41d4-a716-446655440000/bass.wav",
+    "bassless_audio_url": "/api/v1/downloads/550e8400-e29b-41d4-a716-446655440000/bassless_backing.wav",
+    "midi_url": "/api/v1/downloads/550e8400-e29b-41d4-a716-446655440000/550e8400-e29b-41d4-a716-446655440000.mid"
   },
   "events": [
     {

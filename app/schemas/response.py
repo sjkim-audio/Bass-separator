@@ -5,6 +5,11 @@ class TranscriptionMetadata(BaseModel):
     task_id: str
     model_version: str = "demucs-htdemucs-v4.1_crepe-tiny"
     processing_time_ms: float
+    
+    # [Fix] Pydantic 직렬화 과정에서 증발하는 URL 필드 명시적 복원
+    bass_audio_url: Optional[str] = None
+    bassless_audio_url: Optional[str] = None
+    midi_url: Optional[str] = None
 
 class BassNoteEvent(BaseModel):
     start_time: float
@@ -21,7 +26,7 @@ class BassNoteEvent(BaseModel):
 
 class TranscriptionResponse(BaseModel):
     status: str = "SUCCESS"
-    bpm: float            # [Fix] BPM 데이터 누락 복원
-    ascii_tab: str        # [Fix] ASCII 타브 악보 누락 복원
+    bpm: float
+    ascii_tab: str
     metadata: TranscriptionMetadata
     events: List[BassNoteEvent]

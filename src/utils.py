@@ -81,6 +81,8 @@ def save_experiment_results(metrics, exp_id, base_dir="/content/drive/MyDrive/Ba
     elif 'Onset_Pitch_F1' in metrics:
         summary = {
             "Onset_Pitch_F1": metrics.get('Onset_Pitch_F1', 0.0),
+            "Chroma_F1": metrics.get('Chroma_F1', 0.0),
+            "Octave_Error_Rate": metrics.get('Octave_Error_Rate', 0.0),
             "Strict_F1": metrics.get('Strict_F1', 0.0)
         }
         
