@@ -9,4 +9,5 @@ services:
     volumes:
       - ./app:/app/app
       - ./model_cache:/root/.cache/torch/hub/checkpoints
+      - ./crepe_cache:/root/.cache/torchcrepe
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
