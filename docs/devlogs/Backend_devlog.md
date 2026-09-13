@@ -64,6 +64,10 @@
 - **Problem:** 정량 평가 프레임워크 구축 시, 100GB 규모의 벤치마크 데이터셋(Slakh2100)을 로컬 환경에서 압축 해제하고 파이썬 오디오 라이브러리(`librosa`)로 처리할 때 스토리지 부족(OOS) 및 대규모 메모리 할당으로 인한 RAM 병목(OOM)이 발생했습니다.
 - **Optimization:** 아카이브(`.tar.gz`)를 디스크에 풀지 않고 파일 포인터만 순회하여 메타데이터를 1차 스캔한 뒤, 타겟 파일만 2차 추출하여 시스템 `FFmpeg` 서브프로세스로 변환하고 즉시 삭제하는 **2-Pass 스트리밍 추출 아키텍처(`prepare_slakh_local.py`)**를 구축했습니다. 이를 통해 파이썬 가비지 컬렉션을 우회하고 대규모 데이터 전처리 파이프라인의 인프라 무결성을 달성했습니다.
 
+### Step 9: Storage Lifecycle Management & Container Optimization (Pre-Phase 9)
+- **Problem:** Step 7에서 도입한 샌드박스 디렉토리가 작업 완료 후에도 방치되어 장기 가동 시 호스트 머신의 스토리지 고갈(OOS)을 유발할 위험이 발견되었습니다. 또한, 컨테이너 재시작 시 `torchcrepe` 모델 가중치를 매번 새로 다운로드해야 하는 네트워크 비효율성이 존재했습니다.
+- **Optimization:** SQL 도입(Phase 9) 전 인프라 누수를 차단하기 위해, 추론 완료 시점을 기준으로 1시간 뒤 샌드박스를 안전하게 삭제하는 **Queue-Aware TTL 클린업**과, 서버 부팅 시 이전 세션의 고아(Zombie) 폴더를 일괄 정리하는 **FastAPI Lifespan GC**를 도입하여 스토리지 생명주기를 완벽히 통제했습니다. 아울러 도커 볼륨 매핑을 추가해 가중치 중복 다운로드 병목을 원천 차단했습니다.
+
 ---
 
 ## 3. Challenges & Solutions (Troubleshooting)
@@ -91,6 +95,11 @@
 | **Windows File Lock 및 삭제 지연** | 스트리밍 변환 후 임시 폴더 통삭제(`shutil.rmtree`) 시, 백그라운드 프로세스의 파일 락(Lock)으로 인한 삭제 실패. | `os.chmod`를 통한 쓰기 권한 강제 부여 및 삭제 재시도(Retry) 헬퍼 로직을 추가하여 I/O 예외 방어. |
 | **GT 도메인 왜곡 및 위상 지연** | 정답 악보가 물리 주파수보다 1옥타브 높게 기보되어 있고, Demucs 추론 시 수십 ms의 오디오 위상 지연 발생. | 평가 인프라(`evaluator.py`) 내부 데이터 로더에 옥타브 정규화(`/ 2.0`) 및 상호상관도(Cross-correlation) 기반 위상 동기화 로직 내장. |
 | **CUDA API 오남용 및 추론 병목 (VRAM Sync Bottleneck)** | 정상 추론 루프(Chunking) 끝단에 `torch.cuda.empty_cache()`가 레거시로 남아, PyTorch 내장 메모리 할당자를 무력화하고 매 청크마다 불필요한 CPU-GPU 강제 동기화(병목)를 유발함. | 정상 로직에서 수동 캐시 클리어를 제거하고 OOM이 발생한 `except RuntimeError` (동적 백오프) 블록에만 격리함. 하드 워크로드 벤치마크 결과, 불필요한 동기화 오버헤드를 제거함으로써 **전체 추론 스루풋(RTF)을 약 4.1% 향상**시켜 파이프라인 성능을 정상화함. |
+| **Phase 8.5 ~ Pre-Phase 9 (Infra Lifecycle & Defense)** | | |
+| **단순 TTL의 큐 지연(Queue Delay) 충돌** | 파일 업로드 직후 TTL 카운트다운을 시작할 경우, Semaphore 대기열에 갇힌 유저의 결과물은 추론이 끝나기도 전에 조기 삭제(Premature Deletion)되어 시스템 크래시를 유발함. | 카운트다운 트리거를 API 진입점이 아닌, 추론이 완전히 끝나는 `run_pipeline_task`의 `finally` 블록으로 이동시킨 **Queue-Aware TTL** 구조를 확립하여 대기열 오버헤드를 완벽히 보상함. |
+| **메모리 휘발에 따른 고아 데이터(Zombie Task) 방치** | `BackgroundTasks` 기반의 타이머는 컨테이너 재시작이나 강제 종료 시 메모리에서 증발하여, 삭제되지 못한 폴더들이 영구적인 고아(Zombie) 상태로 스토리지를 잠식(OOS)함. | FastAPI의 **`lifespan` (또는 startup 이벤트)** 훅을 연동하여, 서버 부팅 시 즉각적으로 전체 디렉토리를 스캔하고 1시간이 지난 낡은 폴더를 강제 청소하는 가비지 컬렉션(GC)을 구현함. |
+| **네트워크 병목 (가중치 중복 다운로드)** | `torchcrepe` 모델의 캐시 경로가 도커 볼륨 외부(`~/.cache/torchcrepe`)에 위치하여 컨테이너 재생성 시마다 수백 MB의 가중치를 매번 새로 다운로드함. | `docker-compose.yml`에 `crepe_cache` 전용 로컬 볼륨 매핑을 명시적으로 추가하여 네트워크 I/O 비효율을 원천 차단함. |
+
 
 ---
 
