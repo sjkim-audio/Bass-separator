@@ -21,6 +21,10 @@ from src.models.events import NoteEvent
 warnings.filterwarnings('ignore', module='librosa')
 warnings.filterwarnings('ignore', module='pretty_midi')
 
+# 🔴 [추가] 모듈 레벨 로거 설정
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
 def align_audio(ref_audio, est_audio, sr):
     """
     상호 상관(Cross-correlation)을 사용하여 두 1D 오디오 배열의 위상 지연을 맞춥니다.
@@ -75,23 +79,23 @@ def evaluate_separation(mix_path: str, ref_path: str, est_path: str, align: bool
         # 타겟 음원인 Bass(인덱스 0)의 지표만 리스트로 감싸서 반환 (기존 하위 호환성 유지)
         return {"SDR": [sdr[0]], "SIR": [sir[0]], "SAR": [sar[0]]}
     except Exception as e:
-        print(f"⚠️ BSS_Eval 에러: {e}")
+        logger.warning(f"⚠️ BSS_Eval 에러: {e}")
         return {"SDR": [np.nan], "SIR": [np.nan], "SAR": [np.nan]}
 
 def run_separation_evaluation(ref_path: str, est_path: str, align: bool = True) -> dict:
-    print(f"📊 [Separation] Processing: {os.path.basename(est_path)}")
+    logger.info(f"📊 [Separation] Processing: {os.path.basename(est_path)}")
     try:
         metrics = evaluate_separation(ref_path, est_path, align=align)
-        print("-" * 40)
-        print("🔹 Separation Summary (BSSEval v4)")
-        print("-" * 40)
-        print(f"✅ Median SDR: {np.nanmedian(metrics['SDR']):.2f} dB")
-        print(f"✅ Median SIR: {np.nanmedian(metrics['SIR']):.2f} dB")
-        print(f"✅ Median SAR: {np.nanmedian(metrics['SAR']):.2f} dB")
-        print("-" * 40)
+        logger.info("-" * 40)
+        logger.info("🔹 Separation Summary (BSSEval v4)")
+        logger.info("-" * 40)
+        logger.info(f"✅ Median SDR: {np.nanmedian(metrics['SDR']):.2f} dB")
+        logger.info(f"✅ Median SIR: {np.nanmedian(metrics['SIR']):.2f} dB")
+        logger.info(f"✅ Median SAR: {np.nanmedian(metrics['SAR']):.2f} dB")
+        logger.info("-" * 40)
         return metrics
     except Exception as e:
-        print(f"❌ Error during separation evaluation: {e}")
+        logger.error(f"❌ Error during separation evaluation: {e}")
         traceback.print_exc()
         return {}
 
@@ -153,26 +157,26 @@ class TranscriptionEvaluator:
         
         return intervals_arr, pitches_arr
 
-    # [디버그용 임시 코드] 정적 메서드로 명확히 분리
     @staticmethod
     def debug_octave_shift(ref_intervals, ref_pitches, est_intervals, est_pitches):
-        print("\n--- 🔍 [DEBUG] MIDI Pitch Comparison (First 10 notes) ---")
+        # 🔴 [핵심 수정] print를 logger.info / logger.warning으로 교체하여 I/O 병목 억제
+        logger.info("\n--- 🔍 [DEBUG] MIDI Pitch Comparison (First 10 notes) ---")
         
         ref_midi = np.round(librosa.hz_to_midi(ref_pitches[:10])) if len(ref_pitches) > 0 else []
         est_midi = np.round(librosa.hz_to_midi(est_pitches[:10])) if len(est_pitches) > 0 else []
         
-        print(f"✅ 정답 (GT) MIDI: {ref_midi}")
-        print(f"🤖 예측 (EST) MIDI: {est_midi}")
+        logger.info(f"✅ 정답 (GT) MIDI: {ref_midi}")
+        logger.info(f"🤖 예측 (EST) MIDI: {est_midi}")
         
         if len(ref_midi) > 0 and len(est_midi) > 0:
             diff = np.mean(est_midi[:min(len(ref_midi), len(est_midi))] - ref_midi[:min(len(ref_midi), len(est_midi))])
-            print(f"📊 평균 시프트(Shift): {diff:.2f} semitones")
+            logger.info(f"📊 평균 시프트(Shift): {diff:.2f} semitones")
             
             if diff > 10: 
-                print("⚠️ 진단: 모델이 GT보다 1옥타브 높게 예측 중입니다 (+12). (Harmonic Lock-on 의심)")
+                logger.warning("⚠️ 진단: 모델이 GT보다 1옥타브 높게 예측 중입니다 (+12). (Harmonic Lock-on 의심)")
             elif diff < -10: 
-                print("⚠️ 진단: 모델이 GT보다 1옥타브 낮게 예측 중입니다 (-12). (VSTi Transposition 의심)")
-        print("----------------------------------------------------------\n")
+                logger.warning("⚠️ 진단: 모델이 GT보다 1옥타브 낮게 예측 중입니다 (-12). (VSTi Transposition 의심)")
+        logger.info("----------------------------------------------------------\n")
 
     @staticmethod
     def _events_to_mir_eval(events: List[NoteEvent], use_quantized: bool = False):
@@ -183,9 +187,8 @@ class TranscriptionEvaluator:
             else:
                 onset = e.time
                 
-                # [수정] 비정상적인 지속시간(Duration)에 대한 명시적 로깅 방어선 구축
                 if e.duration <= 0:
-                    logging.warning(
+                    logger.warning(
                         f"⚠️ [평가 경고] 비정상적인 지속시간(Duration <= 0) 감지됨 "
                         f"(Onset: {onset:.3f}s, Note: {e.midi_note}). 파이프라인의 시간 역전 버그일 수 있습니다. "
                         f"평가를 위해 50ms로 강제 보정합니다."
@@ -211,14 +214,11 @@ class TranscriptionEvaluator:
     @staticmethod
     def evaluate(ref_midi_path: str, est_events: List[NoteEvent], test_quantized: bool = False, onset_tolerance: float = 0.1) -> Dict[str, float]:
         ref_intervals, ref_pitches = TranscriptionEvaluator.load_midi_to_mir_eval(ref_midi_path)
-        # Slakh GT가 1옥타브 높게 기보된 것을 물리적 주파수로 정규화
-        # 주파수(Hz)를 절반(/2.0)으로 나누어 정확히 1옥타브(-12 반음) 하강시킴
         if len(ref_pitches) > 0:
             ref_pitches = ref_pitches / 2.0
         
         est_intervals, est_pitches = TranscriptionEvaluator._events_to_mir_eval(est_events, use_quantized=test_quantized)
         
-        # 예외 상황에서도 스키마 무결성을 보장하기 위한 템플릿
         empty_schema = {
             "Onset_Precision": 0.0, "Onset_Recall": 0.0, "Onset_F1": 0.0,
             "Onset_Pitch_Precision": 0.0, "Onset_Pitch_Recall": 0.0, "Onset_Pitch_F1": 0.0,
@@ -234,11 +234,9 @@ class TranscriptionEvaluator:
         elif len(ref_intervals) == 0 or len(est_intervals) == 0:
              return empty_schema.copy()
 
-        # 🚨 [추가] mir_eval 채점 직전에 디버그 함수 호출 (raw 모드일 때만 1회 출력되도록 제어)
         if not test_quantized:
             TranscriptionEvaluator.debug_octave_shift(ref_intervals, ref_pitches, est_intervals, est_pitches)
 
-        # 1. 원본 엄격 평가 (기존 로직)
         scores = mir_eval.transcription.evaluate(
             ref_intervals, ref_pitches, est_intervals, est_pitches,
             onset_tolerance=onset_tolerance, 
@@ -247,7 +245,6 @@ class TranscriptionEvaluator:
             offset_min_tolerance=0.05
         )
         
-        # 2. 옥타브 무시(Chroma) 평가
         ref_pitches_chroma = librosa.midi_to_hz((librosa.hz_to_midi(ref_pitches) % 12) + 48)
         est_pitches_chroma = librosa.midi_to_hz((librosa.hz_to_midi(est_pitches) % 12) + 48)
         
@@ -280,22 +277,22 @@ class TranscriptionEvaluator:
         }
 
 async def run_transcription_evaluation(ref_midi_path: str, audio_path: str, is_isolated: bool = False, onset_tolerance: float = 0.1, ref_audio_path: str = None) -> dict:
-    print(f"🎵 [Transcription] Processing Audio: {os.path.basename(audio_path)}")
+    logger.info(f"🎵 [Transcription] Processing Audio: {os.path.basename(audio_path)}")
     from src.core.pipeline import run_transcription_pipeline
     
     bass_path = audio_path
     bassless_path = None
-    separation_metrics = {} # 분리 성능을 담을 빈 딕셔너리 초기화
+    separation_metrics = {}
     
     try:
         if not is_isolated:
             from src.core.demucs_runner import separate_and_generate_stems
-            print("⏳ 믹스 음원이 감지되었습니다. Demucs 음원 분리를 먼저 수행합니다...")
+            logger.info("⏳ 믹스 음원이 감지되었습니다. Demucs 음원 분리를 먼저 수행합니다...")
             temp_out_dir = "outputs/eval_temp"
             bass_path, bassless_path = await separate_and_generate_stems(audio_path, output_dir=temp_out_dir)
             
             if ref_audio_path and os.path.exists(ref_audio_path):
-                print("⏱️ 정답 오디오를 기반으로 Demucs 위상 지연(Latency) 보정을 수행합니다...")
+                logger.info("⏱️ 정답 오디오를 기반으로 Demucs 위상 지연(Latency) 보정을 수행합니다...")
                 ref_audio, sr = librosa.load(ref_audio_path, sr=None, mono=True)
                 est_audio, _ = librosa.load(bass_path, sr=sr, mono=True)
                 
@@ -305,9 +302,6 @@ async def run_transcription_evaluation(ref_midi_path: str, audio_path: str, is_i
                 sf.write(aligned_bass_path, aligned_est, sr)
                 bass_path = aligned_bass_path
                 
-                # ---------------------------------------------------------
-                # 생성된(보정된) 베이스 파형에 대한 음원 분리 채점 실행
-                # ---------------------------------------------------------
                 try:
                     sep_raw = evaluate_separation(audio_path, ref_audio_path, bass_path, align=False)
                     separation_metrics = {
@@ -315,18 +309,15 @@ async def run_transcription_evaluation(ref_midi_path: str, audio_path: str, is_i
                         "SIR": float(np.nanmedian(sep_raw["SIR"])),
                         "SAR": float(np.nanmedian(sep_raw["SAR"]))
                     }
-                    print(f"✅ [Separation] Median SDR: {separation_metrics['SDR']:.2f} dB")
+                    logger.info(f"✅ [Separation] Median SDR: {separation_metrics['SDR']:.2f} dB")
                 except Exception as e:
-                    print(f"⚠️ [Separation] 분리 성능 채점 실패: {e}")
+                    logger.warning(f"⚠️ [Separation] 분리 성능 채점 실패: {e}")
             else:
-                print("⚠️ [경고] ref_audio_path가 제공되지 않아 E2E 위상 지연 보정을 건너뜁니다.")
+                logger.warning("⚠️ [경고] ref_audio_path가 제공되지 않아 E2E 위상 지연 보정을 건너뜁니다.")
                 
         else:
-            print("⚡ 단일 베이스 트랙(Isolated) 모드입니다. Demucs를 생략하고 즉시 채보를 시작합니다.")
+            logger.info("⚡ 단일 베이스 트랙(Isolated) 모드입니다. Demucs를 생략하고 즉시 채보를 시작합니다.")
 
-        # ---------------------------------------------------------
-        # [복구됨] 실제 Transcription 파이프라인 가동 및 채점 로직
-        # ---------------------------------------------------------
         loop = asyncio.get_running_loop()
         _, _, fingered_events, quantized_events = await loop.run_in_executor(
             None, run_transcription_pipeline, bass_path, bassless_path
@@ -335,15 +326,14 @@ async def run_transcription_evaluation(ref_midi_path: str, audio_path: str, is_i
         metrics_raw = TranscriptionEvaluator.evaluate(ref_midi_path, fingered_events, test_quantized=False, onset_tolerance=onset_tolerance)
         metrics_quantized = TranscriptionEvaluator.evaluate(ref_midi_path, quantized_events, test_quantized=True, onset_tolerance=onset_tolerance)
         
-        print("-" * 40)
-        print("🔹 Transcription Summary (mir_eval)")
-        print("-" * 40)
-        print(f"✅ [Raw] Onset-Pitch F1-Score        : {metrics_raw['Onset_Pitch_F1'] * 100:.2f}%")
-        print(f"✅ [Quantized] Onset-Pitch F1-Score  : {metrics_quantized['Onset_Pitch_F1'] * 100:.2f}%")
-        print(f"✅ [Quantized] Chroma F1-Score       : {metrics_quantized.get('Chroma_F1', 0.0) * 100:.2f}%")
-        print(f"⚠️ [Quantized] Octave Error Rate     : {metrics_quantized.get('Octave_Error_Rate', 0.0) * 100:.2f}%")
-        print("-" * 40)
-        # ---------------------------------------------------------
+        logger.info("-" * 40)
+        logger.info("🔹 Transcription Summary (mir_eval)")
+        logger.info("-" * 40)
+        logger.info(f"✅ [Raw] Onset-Pitch F1-Score        : {metrics_raw['Onset_Pitch_F1'] * 100:.2f}%")
+        logger.info(f"✅ [Quantized] Onset-Pitch F1-Score  : {metrics_quantized['Onset_Pitch_F1'] * 100:.2f}%")
+        logger.info(f"✅ [Quantized] Chroma F1-Score       : {metrics_quantized.get('Chroma_F1', 0.0) * 100:.2f}%")
+        logger.info(f"⚠️ [Quantized] Octave Error Rate     : {metrics_quantized.get('Octave_Error_Rate', 0.0) * 100:.2f}%")
+        logger.info("-" * 40)
         
         return {
             "raw": metrics_raw,
@@ -352,7 +342,6 @@ async def run_transcription_evaluation(ref_midi_path: str, audio_path: str, is_i
         }
         
     except Exception as e:
-        print(f"❌ Error during transcription evaluation: {e}")
-        import traceback
+        logger.error(f"❌ Error during transcription evaluation: {e}")
         traceback.print_exc()
         return {}
