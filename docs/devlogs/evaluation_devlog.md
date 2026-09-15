@@ -85,6 +85,7 @@
 | **1D Array Slicing Crash** | 모노(1D) 오디오 배열에 스테레오(2D) 전용 슬라이싱(`[:, lag:]`)을 시도하여 차원 충돌 및 파이프라인 붕괴 발생. | `np.atleast_1d().squeeze()`를 통해 입력 배열을 1D 규격으로 강제 평탄화(Flattening)하고 슬라이싱 로직 교체. |
 | **Separation API Deprecation** | `museval` 패키지 업데이트로 인한 `eval_bss_v4` API 소실로 음원 분리(SDR) 채점 불가. | `mir_eval.separation`으로 평가 엔진을 마이그레이션하고, 2D 텐서 주입 및 `NaN` 예외 반환 방어 로직 구축. |
 | **Separation SIR Infinity** | 평가기에 타겟 음원(Bass)만 단일 입력되어 수학적 간섭(Interference) 수치가 0으로 계산됨. | Mix 음원에서 Bass를 감산해 간섭 신호(Bassless)를 합성한 후 2채널 매트릭스로 주입하여 지표 산출 로직 교정. |
+| **Evaluator I/O Blocking** | `debug_octave_shift` 내부의 동기식 `print` 호출이 대규모 비동기 배치 평가 루프에서 컨텍스트 스위칭과 I/O 병목을 유발함. | 표준 `logging` 모듈로 전면 교체하여 비동기 환경에서의 관측성(Observability)을 확보하고 벤치마크 성능 저하를 방어함. |
 
 <details>
 <summary><b>각 항목별 상세 원인 및 설계 논리</b></summary>
@@ -156,6 +157,12 @@
 *   **이슈:** E2E 음원 분리 채점 결과에서 신호 대 간섭비(SIR)가 지속적으로 무한대(Infinity)로 도출되는 현상 발견.
 *   **원인:** `mir_eval.separation.bss_eval_sources` 평가기 호출 시, 간섭 음원(Interference)의 입력 없이 타겟 음원(Bass)만 2D 배열로 주입됨. 이로 인해 내부 연산에서 간섭 수치가 0으로 수렴하여 분모가 소실되는 수학적 차원 누락이 발생함.
 *   **해결:** 오디오 분리 평가 함수(`evaluate_separation`)에 원본 Mix 오디오 경로를 주입하도록 시그니처를 수정함. `Mix - Bass` 감산을 통해 잔여 간섭 신호(Bassless MR)를 동적으로 합성한 뒤, 타겟과 간섭 신호를 2채널 매트릭스로 결합하여 평가기에 전달함으로써 유효한 SIR 지표 산출 로직을 교정함.
+*   
+### 3.14. 평가기 I/O 블로킹 방어 및 로깅(Logging) 최적화
+*   **이슈:** 대규모 배치 평가(`run_batch_eval.py`)를 비동기/스레드풀 루프로 가동할 때, `evaluator.py` 내부(`debug_octave_shift` 등)에서 습관적으로 사용된 `print()` 문이 터미널 I/O 대기(Blocking)를 유발함.
+*   **결과:** 151곡 평가 과정에서 잦은 컨텍스트 스위칭이 발생하여 비동기 이벤트 루프의 효율이 떨어지고, 전체 벤치마크 소요 시간이 불필요하게 팽창하는 병목 현상 발견.
+*   **해결:** 모듈 내 모든 동기식 `print()` 호출을 파이썬 표준 `logging` 모듈(`logger.info`, `logger.warning`, `logger.error` 등)로 전면 교체함. 이를 통해 비동기 환경에서의 스레드 안전성(Thread-safety)과 시스템 관측성(Observability)을 확보하고, 대규모 E2E 평가 시의 성능 저하를 방어함.
+
 
 ---
 </details>
