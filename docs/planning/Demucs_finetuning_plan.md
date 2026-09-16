@@ -2,6 +2,11 @@
 
 본 문서는 베이스 음원 분리 알고리즘(htdemucs)의 성능 평가를 위한 커스텀 데이터셋 명세부터, 실제 모델의 성능 향상 및 치명적 망각(Catastrophic Forgetting) 방지를 위한 파인튜닝(Fine-tuning) 훈련 전략까지의 전체 파이프라인을 통합하여 기록합니다.
 
+> **Status:** ⏸️ Deprioritized / Archived (Phase 8 이후 보류됨)
+> **Reasoning:** 
+> 현재 파이프라인 성능의 메인 병목이 Demucs의 왜곡(SAR)으로 식별되었으나, 기존 모델을 직접 파인튜닝하는 것보다 **1. MLOps 백엔드 인프라(SQL/Celery) 확립**, **2. BS-RoFormer 등 차세대 SOTA 모델 핫스왑(Hot-swap) 적용**이 엔지니어링적 투자 대비 효용(ROI)이 훨씬 높다고 판단됨. 
+> 본 문서의 파인튜닝 및 데이터 증강 전략은 향후 MLOps 인프라가 완전히 정착된 이후, 자체적인 도메인 특화 모델(Transfer Learning)이 필요해지는 시점까지 실행을 전면 보류함.
+
 ---
 
 ## 1. Evaluation Dataset (성능 평가용 데이터 명세)
