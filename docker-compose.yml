@@ -1,13 +1,36 @@
 version: '3.8'
 
 services:
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: bass_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d bass_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   api:
     build: .
-    container_name: bass-separator-api
     ports:
       - "8000:8000"
     volumes:
-      - ./app:/app/app
-      - ./model_cache:/root/.cache/torch/hub/checkpoints
+      - ./outputs:/app/outputs
       - ./crepe_cache:/root/.cache/torchcrepe
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    environment:
+      # 컨테이너 내부에서는 'db' 호스트명 사용
+      - DATABASE_URL=postgresql+asyncpg://user:password@db:5432/bass_db
+    depends_on:
+      db:
+        condition: service_healthy
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+volumes:
+  postgres_data:
