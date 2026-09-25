@@ -2,7 +2,7 @@ import os
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 
 # 개발 환경을 위한 기본 URL (추후 .env 연동)
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+asyncpg://user:password@localhost:5432/bass_db")
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+asyncpg://sjkim:8721@localhost:5432/bass_db")
 
 # 비동기 엔진 생성 (커넥션 풀링 최적화)
 engine = create_async_engine(
