@@ -3,16 +3,20 @@ import time
 import uuid
 import shutil
 import asyncio
-import json
 from pathlib import Path
 from contextlib import asynccontextmanager
 
 # 윈도우 환경 DLL 충돌 방지
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
-from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks
+from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks, Depends
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+
+# 🔴 DB 의존성 및 ORM 모델 임포트
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.database.core import get_db, AsyncSessionLocal
+from app.database.models import TranscriptionTask, TaskStatus
 
 # 내부 모듈 임포트
 from app.schemas.response import TranscriptionResponse, TranscriptionMetadata, BassNoteEvent
@@ -28,7 +32,6 @@ RESULT_DIR = "outputs"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(RESULT_DIR, exist_ok=True)
 
-# 🔴 [핵심 보완 2] 서버 부팅 시 고아 데이터(Zombie) 일괄 정리 로직
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("🧹 [Startup] 이전 세션의 고아(Orphan) 태스크 디렉토리를 스캔합니다...")
@@ -42,11 +45,10 @@ async def lifespan(app: FastAPI):
                     shutil.rmtree(item_path, ignore_errors=True)
                     print(f"🗑️ [Startup] 만료된 태스크 삭제 완료: {item}")
     yield
-    # Shutdown 시 동작 로직 (현재는 불필요)
 
 app = FastAPI(
     title="Bass Transcription API",
-    description="Bass separation and E2E transcription with concurrency control.",
+    description="Bass separation and E2E transcription with async database state management.",
     lifespan=lifespan
 )
 
@@ -65,12 +67,6 @@ def cleanup_files(*file_paths: str):
         except Exception as e:
             print(f"⚠️ 파일 삭제 실패: {path} - {e}")
 
-def save_result_to_disk(save_path: Path, data: dict):
-    """상태 저장소: 추론 결과를 JSON으로 직렬화하여 샌드박스에 보존"""
-    with open(save_path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4, ensure_ascii=False)
-    print(f"💾 결과 저장 완료: {save_path}")
-
 async def ttl_cleanup(task_dir: Path, delay_sec: int = 3600):
     """지정된 시간(TTL) 경과 후 태스크 샌드박스를 강제 삭제하여 스토리지를 확보합니다."""
     await asyncio.sleep(delay_sec)
@@ -86,8 +82,15 @@ async def run_pipeline_task(task_id: str, temp_file_path: str):
     bass_path = None
     bassless_path = None
     
-    async with gpu_semaphore:
-        try:
+    # [DB Update 1] 상태: PROCESSING (세션 즉시 종료하여 커넥션 반환)
+    async with AsyncSessionLocal() as db:
+        task = await db.get(TranscriptionTask, task_id)
+        if task:
+            task.status = TaskStatus.PROCESSING
+            await db.commit()
+
+    try:
+        async with gpu_semaphore:
             # 1. 4-Stem 분리 및 MR 병합 로직 호출
             raw_bass_path, raw_bassless_path = await separate_and_generate_stems(
                 temp_file_path, 
@@ -112,7 +115,7 @@ async def run_pipeline_task(task_id: str, temp_file_path: str):
             loop = asyncio.get_running_loop()
             start_time_perf = time.perf_counter()
             
-            # 2. 추출된 베이스 및 MR 경로를 채보 파이프라인으로 전달
+            # 2. 추출된 베이스 및 MR 경로를 채보 파이프라인으로 전달 (DB 무관)
             ascii_tab, bpm, fingered_events, quantized_events = await loop.run_in_executor(
                 None, run_transcription_pipeline, bass_path, bassless_path
             )
@@ -153,20 +156,36 @@ async def run_pipeline_task(task_id: str, temp_file_path: str):
                 events=note_dtos
             )
 
-            save_result_to_disk(task_out_dir / f"{task_id}.json", response_data.model_dump())
-            
-        except Exception as e:
-            print(f"❌ 파이프라인 에러 [{task_id}]: {repr(e)}")
-            error_payload = {"status": "FAILED", "error": repr(e), "task_id": task_id}
-            save_result_to_disk(task_out_dir / f"{task_id}.json", error_payload)
-            
-        finally:
-            cleanup_files(temp_file_path)
-            # 🔴 [핵심 보완 1] 세마포어 대기열(Queue)을 모두 통과하고 처리가 끝난 직후에 타이머 가동
-            asyncio.create_task(ttl_cleanup(task_out_dir, 3600))
+        # [DB Update 2] 상태: SUCCESS 및 결과 영구 저장
+        async with AsyncSessionLocal() as db:
+            task = await db.get(TranscriptionTask, task_id)
+            if task:
+                task.status = TaskStatus.SUCCESS
+                task.result_metadata = response_data.model_dump()
+                await db.commit()
+                print(f"💾 [{task_id}] DB 상태 업데이트 완료: SUCCESS")
+                
+    except Exception as e:
+        print(f"❌ 파이프라인 에러 [{task_id}]: {repr(e)}")
+        # [DB Update 3] 상태: FAILED 및 예외 로그 저장
+        async with AsyncSessionLocal() as db:
+            task = await db.get(TranscriptionTask, task_id)
+            if task:
+                task.status = TaskStatus.FAILED
+                task.error_log = repr(e)
+                await db.commit()
+                
+    finally:
+        cleanup_files(temp_file_path)
+        # 세마포어 통과 및 처리가 모두 종료된 후 안전하게 TTL 타이머 가동
+        asyncio.create_task(ttl_cleanup(task_out_dir, 3600))
 
 @app.post("/api/v1/transcribe")
-async def transcribe_audio(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
+async def transcribe_audio(
+    background_tasks: BackgroundTasks, 
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db)
+):
     MAX_SIZE = 50 * 1024 * 1024
     content = await file.read()
     if len(content) > MAX_SIZE:
@@ -179,24 +198,32 @@ async def transcribe_audio(background_tasks: BackgroundTasks, file: UploadFile =
     with open(temp_file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
-    # 태스크 큐에 작업만 할당 (TTL 타이머는 여기서 가동하지 않음)
+    # 🔴 [DB Insert] 작업 수락 시 즉각 PENDING 레코드 생성
+    new_task = TranscriptionTask(id=task_id, status=TaskStatus.PENDING)
+    db.add(new_task)
+    await db.commit()
+
     background_tasks.add_task(run_pipeline_task, task_id, temp_file_path)
 
     return JSONResponse(
         status_code=202,
-        content={"status": "ACCEPTED", "task_id": task_id, "message": "Inference started in background."}
+        content={"status": TaskStatus.PENDING.value, "task_id": task_id, "message": "Inference started in background."}
     )
 
 @app.get("/api/v1/tasks/{task_id}")
-async def get_status(task_id: str):
-    result_path = Path(RESULT_DIR) / task_id / f"{task_id}.json"
+async def get_status(task_id: str, db: AsyncSession = Depends(get_db)):
+    # 🔴 [DB Select] 파일 시스템 접근 없이 PK(id) 기반 초고속 데이터베이스 조회
+    task = await db.get(TranscriptionTask, task_id)
     
-    if result_path.exists():
-        with open(result_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
         
-        if data.get("status") != "FAILED":
-            data["status"] = "SUCCESS"
-        return data
+    response = {"status": task.status.value, "task_id": task_id}
     
-    return {"status": "PROCESSING", "task_id": task_id}
+    if task.status == TaskStatus.SUCCESS and task.result_metadata:
+        # Pydantic DTO가 dict로 직렬화되어 있으므로 곧바로 병합(Merge)하여 반환
+        response.update(task.result_metadata)
+    elif task.status == TaskStatus.FAILED and task.error_log:
+        response["error"] = task.error_log
+        
+    return response
