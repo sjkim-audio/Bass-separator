@@ -13,7 +13,7 @@ from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks, D
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-# 🔴 DB 의존성 및 ORM 모델 임포트
+# DB 의존성 및 ORM 모델 임포트
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.database.core import get_db, AsyncSessionLocal
 from app.database.models import TranscriptionTask, TaskStatus
@@ -190,15 +190,17 @@ async def transcribe_audio(
     content = await file.read()
     if len(content) > MAX_SIZE:
         raise HTTPException(status_code=413, detail="File too large (Max 50MB)")
-    await file.seek(0)
+    
+    # 파일 포인터 되돌림 생략 (메모리의 content 직접 기록)
 
     task_id = str(uuid.uuid4())
     temp_file_path = os.path.join(UPLOAD_DIR, f"{task_id}_{file.filename}")
 
-    with open(temp_file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+    # 🟢 [성능 최적화] 메모리에 로드된 바이트 배열을 즉시 기록하여 I/O 블로킹 최소화
+    with open(temp_file_path, "wb") as f:
+        f.write(content)
 
-    # 🔴 [DB Insert] 작업 수락 시 즉각 PENDING 레코드 생성
+    # [DB Insert] 작업 수락 시 즉각 PENDING 레코드 생성
     new_task = TranscriptionTask(id=task_id, status=TaskStatus.PENDING)
     db.add(new_task)
     await db.commit()
@@ -212,7 +214,7 @@ async def transcribe_audio(
 
 @app.get("/api/v1/tasks/{task_id}")
 async def get_status(task_id: str, db: AsyncSession = Depends(get_db)):
-    # 🔴 [DB Select] 파일 시스템 접근 없이 PK(id) 기반 초고속 데이터베이스 조회
+    # [DB Select] 파일 시스템 접근 없이 PK(id) 기반 초고속 데이터베이스 조회
     task = await db.get(TranscriptionTask, task_id)
     
     if not task:
