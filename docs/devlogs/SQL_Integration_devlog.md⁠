@@ -39,7 +39,7 @@
 
 ## 4. 실행 체크리스트 (Implementation Roadmap)
 
-순차적으로 진행할 구현 과제 목록이다.
+순차적으로 진행한 구현 과제 목록이다.
 
 - [x] **Step 1: 인프라 환경 구성**
   - `docker-compose.yml`에 PostgreSQL 서비스 및 로컬 볼륨 맵핑 추가.
@@ -50,9 +50,10 @@
 - [x] **Step 3: 데이터베이스 마이그레이션 적용**
   - `alembic init -t async` 명령으로 비동기 마이그레이션 환경 구성.
   - 비동기 드라이버(`asyncpg`) 환경에 맞춘 `env.py` 수정(실제 DB 계정 정보 반영) 및 최초 리비전(Initial Migration) 테이블 생성 완료.
-- [ ] **Step 4: API 라우터 연동 및 레거시 파일 시스템 로직 교체**
-  - `/transcribe` 엔드포인트에 `PENDING` 레코드 생성 로직 추가.
-  - `/status/{task_id}` 엔드포인트의 파일 탐색 구조를 DB 쿼리로 마이그레이션.
+- [x] **Step 4: API 라우터 연동 및 레거시 파일 시스템 로직 교체**
+  - `/api/v1/transcribe` 엔드포인트에 `PENDING` 레코드 생성 로직(Dependency Injection) 추가.
+  - `/api/v1/tasks/{task_id}` 엔드포인트의 무거운 파일 탐색(I/O) 구조를 제거하고 DB PK 조회(`get`)로 마이그레이션.
+  - `run_pipeline_task` 내부의 로컬 JSON 저장 로직을 제거. **Short-lived Session** 패턴(`AsyncSessionLocal`)을 사용하여 딥러닝 연산 스레드와 트랜잭션을 완벽히 격리한 채 상태를 안전하게 `UPDATE`하는 구조 완성.
 
 ## 5. 아키텍처 피벗 (Architecture Pivot: Docker to Native WSL2)
 
@@ -61,4 +62,8 @@
     *   Windows 파일 시스템과 WSL 간의 9p 프로토콜 I/O 병목을 피하기 위해 리눅스 홈 디렉토리(`~/projects/`)로 소스코드 이동.
     *   PostgreSQL을 `apt`를 통해 네이티브 서비스로 가동하고, Python `venv`를 활용해 격리 환경 구축.
     *   기존 `docker-compose.yml`은 향후 배포(Production) 환경을 위해 유지하되, 로컬 개발 시 DB URL은 `localhost`를 참조하도록 이원화함.
-  - `run_pipeline_task` 내부의 로컬 JSON 저장 로직을 비동기 DB `UPDATE` 트랜잭션으로 교체.
+
+## 6. 성능 최적화 노트 (Micro-bottleneck Optimization)
+
+*   **동기식 파일 I/O 블로킹 방어:** `/api/v1/transcribe` 라우터(`async def`)에서 파일을 로컬 임시 폴더에 저장할 때, 기존의 `shutil.copyfileobj`를 사용할 경우 동기적인 디스크 쓰기 작업으로 인해 이벤트 루프가 멈추는(Blocking) 미세 병목이 관찰되었다.
+*   **해결:** 파일 크기 제한 검증을 위해 이미 `await file.read()`로 파일의 전체 바이트 배열이 메모리(`content`)에 적재되어 있다는 점에 착안, 파일 포인터(`seek`)를 되돌리지 않고 해당 바이트 배열을 단일 `write()` 연산으로 직접 기록하도록 리팩토링했다. 이를 통해 수십 MB의 파일 업로드 시에도 다른 사용자들의 상태 폴링(`/tasks` API) 지연을 최소화했다.
