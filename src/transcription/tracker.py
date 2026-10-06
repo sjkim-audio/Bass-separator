@@ -7,10 +7,6 @@ import torchcrepe
 import gc
 
 def clean_octave_errors_smart(f0_array, onset_mask):
-    """
-    온셋(Onset) 경계를 기준으로 시계열 데이터를 독립 조각(Segment)으로 분할한 뒤,
-    각 조각의 중앙값(진짜 기음)을 기준으로 배음 에러(옥타브 도약)를 격리하여 평탄화합니다.
-    """
     f0_clean = f0_array.copy()
     mask = (f0_clean > 0) & (~np.isnan(f0_clean))
     
@@ -109,6 +105,7 @@ def get_f0_crepe_robust(audio, sr, hop_length=160, fmin=40, fmax=500, chunk_dura
                     )
                 success = True
             except RuntimeError as e:
+                # OOM 발생 시에만 강제 가비지 컬렉션 및 캐시 초기화 수행
                 if "out of memory" in str(e).lower():
                     del audio_tensor
                     if device == 'cuda':
@@ -120,7 +117,6 @@ def get_f0_crepe_robust(audio, sr, hop_length=160, fmin=40, fmax=500, chunk_dura
                         raise RuntimeError("❌ CUDA OOM: 배치 사이즈를 1까지 줄였으나 메모리가 부족합니다.")
                     
                     current_batch //= 2
-                    print(f"⚠️ GPU OOM 감지. 배치 사이즈 {current_batch}로 재시도...")
                     audio_tensor = torch.tensor(audio_chunk).unsqueeze(0).to(device)
                 else:
                     raise e
@@ -135,9 +131,9 @@ def get_f0_crepe_robust(audio, sr, hop_length=160, fmin=40, fmax=500, chunk_dura
         f0_list.append(f0_chunk)
         confidence_list.append(conf_chunk)
         
-        del audio_tensor, f0_chunk, conf_chunk
-        if device == 'cuda':
-            torch.cuda.empty_cache()
+        # 🔴 [핵심 수정] 정상 추론 성공 루프 끝단에 방치되어 있던 
+        # del audio_tensor, f0_chunk, conf_chunk 및 torch.cuda.empty_cache() 전면 삭제.
+        # 파이토치의 C++ 백엔드 할당자(Allocator)가 메모리를 자연스럽게 덮어쓰도록 유도하여 병목 해소.
             
     f0 = np.concatenate(f0_list)
     confidence = np.concatenate(confidence_list)
@@ -152,10 +148,20 @@ def get_f0_crepe_robust(audio, sr, hop_length=160, fmin=40, fmax=500, chunk_dura
     onset_mask = np.zeros(len(f0), dtype=bool)
     valid_onsets = onset_frames[onset_frames < len(f0)]
     
-    # 기계적 왜곡(Artifact)에 의한 가짜 타격점(False Onset) 교차 필터링
-    # 피치 신뢰도가 0.4 미만인 프레임의 타격점은 노이즈로 간주하여 마스크에서 배제
-    artifact_resistant_onsets = np.array([idx for idx in valid_onsets if confidence[idx] >= 0.4], dtype=int)
-    onset_mask[artifact_resistant_onsets] = True
+    artifact_resistant_onsets = []
+    for idx in valid_onsets:
+        end_eval_idx = min(idx + 5, len(confidence))
+        conf_window = confidence[idx:end_eval_idx] >= 0.4
+        
+        if len(conf_window) >= 2:
+            if np.any(conf_window[:-1] & conf_window[1:]):
+                artifact_resistant_onsets.append(idx)
+        else:
+            if np.any(conf_window):
+                artifact_resistant_onsets.append(idx)
+            
+    if artifact_resistant_onsets:
+        onset_mask[np.array(artifact_resistant_onsets, dtype=int)] = True
 
     mask_low = (f0 < 80) & (confidence < 0.2)
     mask_mid = (f0 >= 80) & (f0 <= 200) & (confidence < 0.4)
