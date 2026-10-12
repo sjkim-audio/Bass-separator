@@ -25,12 +25,13 @@ services:
       - ./outputs:/app/outputs
       - ./crepe_cache:/root/.cache/torchcrepe
     environment:
-      # 컨테이너 내부에서는 'db' 호스트명 사용
       - DATABASE_URL=postgresql+asyncpg://user:password@db:5432/bass_db
     depends_on:
       db:
         condition: service_healthy
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000"
 
 volumes:
   postgres_data:
