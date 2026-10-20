@@ -11,13 +11,16 @@ class MidiRenderer:
         if not events:
             raise ValueError("MIDI로 변환할 노트 이벤트가 없습니다.")
 
+        # 🔴 [논리 결함 수정] Fallback BPM 방어 로직 (0.0으로 유입될 경우 MIDI Time 붕괴 방지)
+        safe_bpm = bpm if bpm > 0 else 120.0
+
         # 1. MIDI 파일 및 트랙 초기화
         mid = mido.MidiFile()
         track = mido.MidiTrack()
         mid.tracks.append(track)
 
         # 2. 메타데이터 (BPM 설정)
-        tempo = mido.bpm2tempo(bpm)
+        tempo = mido.bpm2tempo(safe_bpm)
         track.append(mido.MetaMessage('set_tempo', tempo=tempo, time=0))
         track.append(mido.MetaMessage('track_name', name='Bass Transcription', time=0))
 
@@ -26,7 +29,7 @@ class MidiRenderer:
         
         # 4. 절대 시간(sec) -> 델타 타임(ticks) 변환 로직
         ticks_per_beat = mid.ticks_per_beat
-        ticks_per_second = (bpm / 60.0) * ticks_per_beat
+        ticks_per_second = (safe_bpm / 60.0) * ticks_per_beat
         
         midi_events = []
         for i, event in enumerate(sorted_events):
@@ -37,7 +40,7 @@ class MidiRenderer:
             on_time = event.time
             off_time = event.time + duration
             
-            # 🔴 [핵심 수정] 단선율(Monophonic) 오버랩 커팅 로직 교정
+            # 단선율(Monophonic) 오버랩 커팅 로직 교정
             if i < len(sorted_events) - 1:
                 next_on_time = sorted_events[i+1].time
                 if off_time > next_on_time:

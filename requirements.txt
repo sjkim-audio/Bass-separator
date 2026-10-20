@@ -27,3 +27,9 @@ python-multipart
 # Frontend & Networking
 streamlit
 requests
+
+# asynchronous database operation
+sqlalchemy>=2.0.0
+asyncpg>=0.28.0
+alembic>=1.11.0
+
