@@ -123,9 +123,11 @@ async def run_pipeline_task(task_id: str, temp_file_path: str):
             # 3. 빈 노트 예외 처리 방어 로직 (MIDI 렌더링 우회)
             midi_filename = f"{task_id}.mid"
             midi_output_path = task_out_dir / midi_filename
+            midi_url = None
             
             if fingered_events:
                 MidiRenderer.render_midi(fingered_events, bpm, str(midi_output_path))
+                midi_url = f"/api/v1/downloads/{task_id}/{midi_filename}"
             else:
                 print(f"⚠️ [{task_id}] 베이스 노트가 감지되지 않아 MIDI 생성을 건너뜁니다.")
                 ascii_tab = "⚠️ 감지된 베이스 노트가 없습니다."
@@ -133,7 +135,7 @@ async def run_pipeline_task(task_id: str, temp_file_path: str):
             note_dtos = [
                 BassNoteEvent(
                     start_time=e.time, 
-                    duration=getattr(e, 'duration', 0.0),
+                    duration=getattr(e, 'duration', 0.05),
                     midi_note=e.midi_note,
                     string_idx=e.string_idx, 
                     fret=e.fret, 
@@ -151,7 +153,7 @@ async def run_pipeline_task(task_id: str, temp_file_path: str):
                     processing_time_ms=processing_time_ms,
                     bass_audio_url=f"/api/v1/downloads/{task_id}/bass.wav",
                     bassless_audio_url=f"/api/v1/downloads/{task_id}/bassless_backing.wav",
-                    midi_url=f"/api/v1/downloads/{task_id}/{midi_filename}" 
+                    midi_url=midi_url
                 ),
                 events=note_dtos
             )
@@ -196,7 +198,7 @@ async def transcribe_audio(
     task_id = str(uuid.uuid4())
     temp_file_path = os.path.join(UPLOAD_DIR, f"{task_id}_{file.filename}")
 
-    # 🟢 [성능 최적화] 메모리에 로드된 바이트 배열을 즉시 기록하여 I/O 블로킹 최소화
+    # [성능 최적화] 메모리에 로드된 바이트 배열을 즉시 기록하여 I/O 블로킹 최소화
     with open(temp_file_path, "wb") as f:
         f.write(content)
 
