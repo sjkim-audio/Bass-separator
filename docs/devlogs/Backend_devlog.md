@@ -99,7 +99,8 @@
 | **단순 TTL의 큐 지연(Queue Delay) 충돌** | 파일 업로드 직후 TTL 카운트다운을 시작할 경우, Semaphore 대기열에 갇힌 유저의 결과물은 추론이 끝나기도 전에 조기 삭제(Premature Deletion)되어 시스템 크래시를 유발함. | 카운트다운 트리거를 API 진입점이 아닌, 추론이 완전히 끝나는 `run_pipeline_task`의 `finally` 블록으로 이동시킨 **Queue-Aware TTL** 구조를 확립하여 대기열 오버헤드를 완벽히 보상함. |
 | **메모리 휘발에 따른 고아 데이터(Zombie Task) 방치** | `BackgroundTasks` 기반의 타이머는 컨테이너 재시작이나 강제 종료 시 메모리에서 증발하여, 삭제되지 못한 폴더들이 영구적인 고아(Zombie) 상태로 스토리지를 잠식(OOS)함. | FastAPI의 **`lifespan` (또는 startup 이벤트)** 훅을 연동하여, 서버 부팅 시 즉각적으로 전체 디렉토리를 스캔하고 1시간이 지난 낡은 폴더를 강제 청소하는 가비지 컬렉션(GC)을 구현함. |
 | **네트워크 병목 (가중치 중복 다운로드)** | `torchcrepe` 모델의 캐시 경로가 도커 볼륨 외부(`~/.cache/torchcrepe`)에 위치하여 컨테이너 재생성 시마다 수백 MB의 가중치를 매번 새로 다운로드함. | `docker-compose.yml`에 `crepe_cache` 전용 로컬 볼륨 매핑을 명시적으로 추가하여 네트워크 I/O 비효율을 원천 차단함. |
-
+| **프론트엔드 샌드박스 URL 불일치 (Static Serving 404)** | Phase 7에서 백엔드 출력 구조가 `outputs/{task_id}/` 샌드박스로 평탄화되었으나, Streamlit(`app.py`)이 구버전 `htdemucs/` 하위 경로를 하드코딩하여 오디오 및 MIDI 로드 시 404 에러 발생. | 프론트엔드 내 경로 조립 로직을 제거하고 백엔드 `TranscriptionMetadata` DTO가 반환하는 URL 필드를 단일 진실 공급원(SSOT)으로 참조하도록 교정. |
+| **양자화 병합 노트의 DTO 지속시간 왜곡 (Merged Duration Mismatch)** | `quantization.py`에서 동일 격자 노트를 병합할 때 `quantized_duration`만 갱신하고 원본 `duration`을 갱신하지 않아, API 응답 DTO(`BassNoteEvent`)에 첫 파편의 짧은 지속시간만 직렬화됨. | 격자 병합 시 물리적 지속시간(`(nxt.time + nxt.duration) - curr.time`)도 함께 업데이트하도록 수정하고, 무음 트랙일 때 `midi_url`이 `None`으로 반환되도록 예외 처리 강화. |
 
 ---
 
