@@ -4,7 +4,8 @@ import time
 import os
 import re
 
-API_BASE_URL = "http://localhost:8000/api/v1"
+API_HOST = "http://localhost:8000"
+API_BASE_URL = f"{API_HOST}/api/v1"
 
 st.set_page_config(page_title="AI Bass Transcription", page_icon="🎸", layout="wide")
 st.title("🎸 AI Bass Separator & Transcription")
@@ -70,13 +71,13 @@ if st.session_state.task_id and not st.session_state.result_data:
 if st.session_state.result_data:
     data = st.session_state.result_data
     task_id = st.session_state.task_id
+    metadata = data.get("metadata", {})
     
-    # [Fix 1] 다운로드 파일명 정규화: 한글(가-힣) 허용 및 빈 문자열 Fallback 방어
+    # 다운로드 파일명 정규화: 한글(가-힣) 허용 및 빈 문자열 Fallback 방어
     raw_filename = os.path.splitext(st.session_state.original_filename)[0]
     safe_filename = re.sub(r'[^a-zA-Z0-9가-힣]', '_', raw_filename)
     safe_filename = re.sub(r'_+', '_', safe_filename).strip('_')
     
-    # 특수문자로만 이루어진 파일명이라 모두 치환되어 빈 문자열이 된 경우
     if not safe_filename:
         safe_filename = "bass_track"
     
@@ -85,21 +86,20 @@ if st.session_state.result_data:
     
     col1, col2 = st.columns(2)
     
-    # [Fix 2] 오디오 서빙 URL 인코딩 (한글 및 공백 파일명 파싱 에러 방어)
-    import urllib.parse
-    encoded_folder_name = urllib.parse.quote(f"{task_id}_{raw_filename}")
-    demucs_base_url = f"{API_BASE_URL}/downloads/demucs/htdemucs/{encoded_folder_name}"
-    midi_url = f"{API_BASE_URL}/downloads/{task_id}.mid"
+    # 백엔드 응답 DTO의 metadata URL을 SSOT로 직접 참조 (샌드박스 경로 정합성 보장)
+    bass_rel_url = metadata.get("bass_audio_url", f"/api/v1/downloads/{task_id}/bass.wav")
+    bassless_rel_url = metadata.get("bassless_audio_url", f"/api/v1/downloads/{task_id}/bassless_backing.wav")
+    midi_rel_url = metadata.get("midi_url")
+    
+    bass_audio_url = f"{API_HOST}{bass_rel_url}"
+    bassless_audio_url = f"{API_HOST}{bassless_rel_url}"
     
     with col1:
         st.markdown("#### 🎧 추출된 베이스 트랙")
-        bass_audio_url = f"{demucs_base_url}/bass.wav"
         st.audio(bass_audio_url, format="audio/wav")
-        # URL 인코딩을 적용했으므로 파일명 변경 요구 경고문은 제거하거나 완화해도 좋습니다.
         
     with col2:
         st.markdown("#### 🔇 베이스 제외 MR (Backing Track)")
-        bassless_audio_url = f"{demucs_base_url}/bassless_backing.wav"
         st.audio(bassless_audio_url, format="audio/wav")
 
     st.markdown(f"**BPM:** {data.get('bpm', 'N/A')}")
@@ -108,16 +108,20 @@ if st.session_state.result_data:
     st.code(data.get("ascii_tab", "악보 데이터가 없습니다."), language="text")
     
     st.markdown("#### 💾 다운로드")
-    try:
-        midi_response = requests.get(midi_url)
-        if midi_response.status_code == 200:
-            st.download_button(
-                label="🎵 MIDI 파일 다운로드 (.mid)",
-                data=midi_response.content,
-                file_name=f"{safe_filename}_bass.mid",
-                mime="audio/midi"
-            )
-        else:
-            st.warning("MIDI 파일을 서버에서 찾을 수 없습니다.")
-    except Exception:
-         st.warning("MIDI 다운로드 링크 생성 중 오류가 발생했습니다.")
+    if midi_rel_url:
+        midi_url = f"{API_HOST}{midi_rel_url}"
+        try:
+            midi_response = requests.get(midi_url)
+            if midi_response.status_code == 200:
+                st.download_button(
+                    label="🎵 MIDI 파일 다운로드 (.mid)",
+                    data=midi_response.content,
+                    file_name=f"{safe_filename}_bass.mid",
+                    mime="audio/midi"
+                )
+            else:
+                st.warning("MIDI 파일을 서버에서 찾을 수 없습니다.")
+        except Exception:
+            st.warning("MIDI 다운로드 링크 생성 중 오류가 발생했습니다.")
+    else:
+        st.info("감지된 베이스 노트가 없어 생성된 MIDI 파일이 없습니다.")
