@@ -33,3 +33,7 @@ sqlalchemy>=2.0.0
 asyncpg>=0.28.0
 alembic>=1.11.0
 
+# Distributed Task Queue & Message Broker
+celery>=5.3.0
+redis>=5.0.0
+
