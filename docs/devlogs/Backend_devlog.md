@@ -10,7 +10,7 @@
 > Phase 6 Completed (DSP Parameter Optimization & E2E Debugging)
 > Phase 7 Completed (Task Isolation & VRAM Recovery Mechanism)
 > Phase 8 Completed (DataOps Streaming Architecture & Evaluation Framework)
-> Phase 9 Planned (Baseline Quantification & Standard Notation Engine)
+> Phase 9 In Progress (SQL Persistence & Celery + Redis Distributed Task Queue)
 
 ## 1. Overview
 이 프로젝트는 완성된 오디오 전사(Transcription) 파이프라인을 다수의 클라이언트(웹/앱)가 호출할 수 있도록 **FastAPI 기반의 RESTful API 서버로 전환**하고, 안정적인 서비스 구동을 위한 **Docker 인프라 환경**을 구축하는 과정을 기록합니다.
@@ -24,6 +24,8 @@
 최근(Phase 6, 7)에는 시스템을 프로덕션 레벨로 끌어올리기 위한 **안정성 경화(Hardening)** 및 **오디오 도메인 최적화** 작업에 집중했습니다. 다중 사용자 환경의 경쟁 상태(Race Condition)를 억제하는 **Task 샌드박스(Sandbox) 격리 아키텍처**를 도입하고, OOM 발생 시 파편화된 VRAM을 동적으로 회수하는 메커니즘을 적용했습니다.
 
 최근(Phase 8)에는 대규모 정량 평가를 위한 **DataOps 파이프라인 및 평가 프레임워크**를 구축했습니다. 100GB에 달하는 벤치마크 데이터셋(Slakh2100)을 로컬 환경의 스토리지 및 메모리 병목 없이 처리하기 위해, 2-Pass 스트리밍 추출 아키텍처를 설계했습니다. 또한 정답 데이터의 옥타브 편향과 위상 지연을 교정하는 도메인 정규화 로직을 평가기(Evaluator) 인프라에 내장하여, 향후 MLOps 고도화를 위한 객관적 기반을 마련했습니다.
+
+최근(Phase 9)에는 로컬 파일 시스템에 의존하던 무상태(Stateless) 구조를 탈피하고 대규모 트래픽에 대응하기 위한 **비동기 영속성(SQL) 및 분산 작업 큐(Celery + Redis) 아키텍처**로 진입했습니다. PostgreSQL과 `SQLAlchemy 2.0 (asyncpg)` 기반의 단명 세션(Short-lived Session) 패턴을 도입하여 긴 추론 시간 동안 발생하는 DB 커넥션 풀 고갈을 방어했으며, 8GB RAM 로컬 환경의 Docker VMM 프리징 현상을 극복하기 위해 개발 환경을 WSL2 네이티브로 피벗(Pivot)했습니다. 이어서 FastAPI 내부의 `asyncio.Semaphore(1)`와 `BackgroundTasks`를 걷어내고 Redis 브로커와 Celery 추론 워커를 물리적으로 분리하여, GPU OOM 크래시 발생 시에도 API 게이트웨이의 생존성(Survivability)을 보장하는 분산 서빙 기반을 구축하고 있습니다.
 
 ---
 
@@ -68,6 +70,14 @@
 - **Problem:** Step 7에서 도입한 샌드박스 디렉토리가 작업 완료 후에도 방치되어 장기 가동 시 호스트 머신의 스토리지 고갈(OOS)을 유발할 위험이 발견되었습니다. 또한, 컨테이너 재시작 시 `torchcrepe` 모델 가중치를 매번 새로 다운로드해야 하는 네트워크 비효율성이 존재했습니다.
 - **Optimization:** SQL 도입(Phase 9) 전 인프라 누수를 차단하기 위해, 추론 완료 시점을 기준으로 1시간 뒤 샌드박스를 안전하게 삭제하는 **Queue-Aware TTL 클린업**과, 서버 부팅 시 이전 세션의 고아(Zombie) 폴더를 일괄 정리하는 **FastAPI Lifespan GC**를 도입하여 스토리지 생명주기를 완벽히 통제했습니다. 아울러 도커 볼륨 매핑을 추가해 가중치 중복 다운로드 병목을 원천 차단했습니다.
 
+### Step 10: Async RDBMS Persistence & Short-lived Session Isolation (Phase 9-1)
+- **Problem:** 작업 상태를 로컬 디렉토리 내 JSON 파일 유무로 추적함에 따라 폴링 시 디스크 I/O 병목이 발생했고, 서버 재시작 시 작업 상태가 증발했습니다. 또한 수십 초가 걸리는 딥러닝 연산 동안 DB 세션을 열어두면 커넥션 풀이 고갈되는 문제가 있었습니다.
+- **Optimization:** `PostgreSQL`, `SQLAlchemy 2.0 (asyncpg)`, `Alembic`을 도입하여 상태 관리(PENDING -> PROCESSING -> SUCCESS/FAILED)를 RDBMS로 이관했습니다. 이때 상태 전이 시점에만 세션을 짧게 열고 즉시 닫는 **Short-lived Session 패턴**을 적용하여 딥러닝 연산 스레드와 DB 트랜잭션을 완벽히 격리했습니다. (자세한 내용은 [SQL_Integration_devlog.md](./SQL_Integration_devlog.md) 참조)
+
+### Step 11: Distributed Task Queue & Worker Isolation (Phase 9-2)
+- **Problem:** 단일 FastAPI 프로세스 내부에서 `BackgroundTasks`와 `asyncio.Semaphore(1)`로 추론을 제어하는 모놀리식 구조는, 무거운 오디오 추론 중 GPU OOM이나 프로세스 크래시가 발생할 경우 웹 서버(API Gateway) 전체가 동반 다운되는 단일 장애점(SPOF) 한계를 안고 있었습니다.
+- **Optimization:** **Redis(Message Broker)**와 **Celery Worker**를 도입하여 API 서버와 추론 워커의 프로세스를 물리적으로 분리했습니다. PyTorch CUDA 컨텍스트의 `fork()` 데드락 및 VRAM 중첩을 막기 위해 워커를 `--pool=solo` 단일 순차 실행 모드로 구성하고, 작업 결과 메타데이터는 Redis에 중복 적재하지 않고(`task_ignore_result=True`) PostgreSQL을 단일 진실 공급원(SSOT)으로 유지했습니다.
+
 ---
 
 ## 3. Challenges & Solutions (Troubleshooting)
@@ -101,6 +111,12 @@
 | **네트워크 병목 (가중치 중복 다운로드)** | `torchcrepe` 모델의 캐시 경로가 도커 볼륨 외부(`~/.cache/torchcrepe`)에 위치하여 컨테이너 재생성 시마다 수백 MB의 가중치를 매번 새로 다운로드함. | `docker-compose.yml`에 `crepe_cache` 전용 로컬 볼륨 매핑을 명시적으로 추가하여 네트워크 I/O 비효율을 원천 차단함. |
 | **프론트엔드 샌드박스 URL 불일치 (Static Serving 404)** | Phase 7에서 백엔드 출력 구조가 `outputs/{task_id}/` 샌드박스로 평탄화되었으나, Streamlit(`app.py`)이 구버전 `htdemucs/` 하위 경로를 하드코딩하여 오디오 및 MIDI 로드 시 404 에러 발생. | 프론트엔드 내 경로 조립 로직을 제거하고 백엔드 `TranscriptionMetadata` DTO가 반환하는 URL 필드를 단일 진실 공급원(SSOT)으로 참조하도록 교정. |
 | **양자화 병합 노트의 DTO 지속시간 왜곡 (Merged Duration Mismatch)** | `quantization.py`에서 동일 격자 노트를 병합할 때 `quantized_duration`만 갱신하고 원본 `duration`을 갱신하지 않아, API 응답 DTO(`BassNoteEvent`)에 첫 파편의 짧은 지속시간만 직렬화됨. | 격자 병합 시 물리적 지속시간(`(nxt.time + nxt.duration) - curr.time`)도 함께 업데이트하도록 수정하고, 무음 트랙일 때 `midi_url`이 `None`으로 반환되도록 예외 처리 강화. |
+| **Phase 9 (SQL Persistence & Distributed Queue)** | | |
+| **장기 추론 중 DB 커넥션 풀 고갈 위험** | 수십 초가 소요되는 GPU 추론 스레드 실행 동안 비동기 DB 세션을 점유(Hold)할 경우 제한된 커넥션 풀(`pool_size=5`)이 즉시 고갈됨. | 상태 전이(PENDING/PROCESSING/SUCCESS/FAILED) 시점에만 `AsyncSessionLocal`을 열어 커밋 후 즉시 닫는 **Short-lived Session 패턴**을 적용하고 코어 파이프라인을 DB와 완전 격리함. |
+| **8GB RAM 환경의 Docker VMM 시스템 프리징** | 무거운 딥러닝 모델(Demucs, CREPE)과 PostgreSQL 컨테이너를 Docker Desktop으로 동시 구동 시 VMM 메모리 잠금 및 9p 프로토콜 I/O 병목으로 호스트 OS 전체가 멈춤. | 로컬 개발 환경을 **WSL2 리눅스 네이티브(ext4) 환경으로 전면 이주(Pivot)**하고, 로컬(`localhost`)과 운영(`db`, `redis`) 환경 변수를 이원화하여 대응함. |
+| **신규 컨테이너 기동 시 DB 테이블 누락 (`UndefinedTable`)** | `docker-compose up`으로 빈 DB 컨테이너와 API 서버 최초 구동 시, 마이그레이션이 자동 실행되지 않아 `transcription_tasks` 테이블 부재 에러 발생. | `docker-compose.yml`의 `api` 구동 명령어에 `alembic upgrade head && uvicorn ...` 체이닝을 적용하여 서버 기동 전 스키마 최신화를 보장함. |
+| **프론트엔드 샌드박스 URL 불일치 (Static Serving 404)** | 백엔드 출력 경로는 `outputs/{task_id}/` 샌드박스로 평탄화되었으나, Streamlit(`app.py`)이 레거시 `htdemucs/` 하위 경로를 호출하여 오디오 및 MIDI 로드 시 404 발생. | 프론트엔드 내 경로 하드코딩을 제거하고 백엔드 `TranscriptionMetadata` DTO의 URL 필드를 단일 진실 공급원(SSOT)으로 참조하도록 통일함. |
+| **Celery 기본 `prefork` 풀과 PyTorch CUDA 데드락** | Celery의 기본 멀티프로세싱(`prefork`)은 OS `fork()`를 사용하여 PyTorch CUDA 컨텍스트 재초기화 에러(`RuntimeError`) 및 VRAM OOM을 유발함. | 워커 실행 옵션을 **`--pool=solo`** 및 `worker_prefetch_multiplier=1`로 강제하여 프로세스 포크 없이 단일 GPU 추론을 안전하게 직렬화함. |
 
 ---
 
@@ -114,8 +130,9 @@
 - [x] **Streamlit Web Demo (MVP):** FastAPI와 통신하여 오디오 플레이어와 악보를 렌더링하는 시각화 클라이언트 완성.
 - [x] **Subprocess Isolation & Concurrency Tuning (Phase 7):** Task 샌드박싱 및 VRAM 강제 반환 메커니즘 구축.
 - [x] **DataOps Streaming Pipeline (Phase 8):** Slakh2100 데이터셋 2-Pass 스트리밍 추출 및 평가 도메인 정규화 인프라 확립.
-- [ ] **Action 1: Baseline F1-Score Quantification (High Priority):** 정규화된 `src/evaluation.py`를 가동하여 양자화 전후(Raw vs Quantized)의 **Onset/Pitch F1-Score 초기 기준값(Baseline)**을 문서화하고 오답을 체계화(Taxonomy).
-- [ ] **Action 2: Standard Notation Serialization Engine:** 단순히 텍스트를 출력하는 ASCII 타브를 넘어, **MusicXML 또는 GuitarPro 파일(.gp5)** 포맷을 직접 생성하는 `guitarpro_renderer.py` 구축.
-- [ ] **Action 3: Articulation Classification ML:** Slap, Pop, Slide 등의 타현 주법을 태깅하기 위해, 별도의 전처리 없이 딥러닝 임베딩 레이어를 재활용하는 경량 주법 분류기(Transfer Learning) 설계.
-- [ ] **Distributed Task Queue:** 단일 노드의 한계를 넘어, Worker 노드 스케일 아웃(Scale-out)이 가능하도록 **Celery + Redis** 기반의 비동기 분산 큐잉 시스템으로 전환.
-- [ ] **Storage TTL Cron Job:** 샌드박스에 지속적으로 누적되는 로컬 결과물의 디스크 팽창을 막기 위해, 일정 시간(예: 24시간) 경과 후 자동 삭제하는 TTL(Time-To-Live) 데몬 도입.
+- [x] **Action 1: Baseline F1-Score Quantification:** 정규화된 평가기를 가동하여 양자화 패널티 해소 후 E2E F1-Score 상한선(63.03%) 측정 및 코어 동결 완료.
+- [x] **Async SQL Persistence (Phase 9-1):** PostgreSQL, SQLAlchemy 2.0(`asyncpg`), Alembic 기반 상태 영속화 및 Short-lived Session 아키텍처 구축 완료.
+- [ ] **Distributed Task Queue (Phase 9-2 - In Progress):** 단일 노드의 한계를 넘어 API 서버 생존성을 보장하기 위해 **Celery + Redis** 기반 비동기 분산 큐잉 시스템으로 전환 중 (Step 1 인프라 뼈대 완료).
+- [ ] **SSE Real-time Streaming (Phase 10):** 3초 주기 HTTP 폴링 방식을 폐기하고 Server-Sent Events(SSE) 단방향 상태 스트리밍 및 DTO 렌더링 오프로딩 구현.
+- [ ] **Source Separation Hot-swap (Phase 11):** Demucs의 왜곡(SAR) 한계 돌파를 위한 `BS-RoFormer` 도입 및 어댑터 기반 무중단 핫스왑 체계 구축.
+- [ ] **Standard Notation Serialization Engine (Phase 13):** 텍스트 기반 ASCII 타브를 넘어 **MusicXML 또는 GuitarPro 파일(.gp5)** 포맷을 직접 생성하는 렌더러 구축.
