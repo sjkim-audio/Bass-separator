@@ -14,8 +14,8 @@ import app.database.models  # noqa
 
 config = context.config
 
-# 🔴 동적 데이터베이스 URL 바인딩 (계정: sjkim, 비밀번호: 8721)
-database_url = os.getenv("DATABASE_URL", "postgresql+asyncpg://sjkim:8721@localhost:5432/bass_db")
+# 🔴 동적 데이터베이스 URL 바인딩
+database_url = os.getenv("DATABASE_URL", "postgresql+asyncpg://user:password@localhost:5432/bass_db")
 config.set_main_option("sqlalchemy.url", database_url)
 
 if config.config_file_name is not None:
