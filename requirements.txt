@@ -21,19 +21,21 @@ matplotlib
 
 # API Server & Backend
 fastapi
-uvicorn
+uvicorn[standard]
 python-multipart
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
 
 # Frontend & Networking
 streamlit
 requests
 
-# asynchronous database operation
-sqlalchemy>=2.0.0
+# Asynchronous Database Operation
+sqlalchemy[asyncio]>=2.0.0
+greenlet>=3.0.0
 asyncpg>=0.28.0
 alembic>=1.11.0
 
 # Distributed Task Queue & Message Broker
 celery>=5.3.0
 redis>=5.0.0
-
