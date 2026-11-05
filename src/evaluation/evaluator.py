@@ -11,7 +11,6 @@ from scipy import signal
 
 from typing import List, Dict
 
-import museval
 import mir_eval
 import pretty_midi
 
@@ -21,7 +20,7 @@ from src.models.events import NoteEvent
 warnings.filterwarnings('ignore', module='librosa')
 warnings.filterwarnings('ignore', module='pretty_midi')
 
-# 🔴 [추가] 모듈 레벨 로거 설정
+# 모듈 레벨 로거 설정
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
@@ -85,7 +84,7 @@ def evaluate_separation(mix_path: str, ref_path: str, est_path: str, align: bool
 def run_separation_evaluation(ref_path: str, est_path: str, align: bool = True) -> dict:
     logger.info(f"📊 [Separation] Processing: {os.path.basename(est_path)}")
     try:
-        metrics = evaluate_separation(ref_path, est_path, align=align)
+        metrics = evaluate_separation(ref_path, ref_path, est_path, align=align)
         logger.info("-" * 40)
         logger.info("🔹 Separation Summary (BSSEval v4)")
         logger.info("-" * 40)
@@ -111,7 +110,7 @@ class TranscriptionEvaluator:
             if not instrument.is_drum:
                 notes.extend(instrument.notes)
                 
-        # [수정] 동시 타현 시 높은 피치가 최종적으로 마스킹(우선순위 획득)하도록 
+        # 동시 타현 시 높은 피치가 최종적으로 마스킹(우선순위 획득)하도록 
         # (시작 시간 오름차순, 피치 오름차순)으로 정렬
         notes.sort(key=lambda x: (x.start, x.pitch))
 
@@ -159,7 +158,6 @@ class TranscriptionEvaluator:
 
     @staticmethod
     def debug_octave_shift(ref_intervals, ref_pitches, est_intervals, est_pitches):
-        # 🔴 [핵심 수정] print를 logger.info / logger.warning으로 교체하여 I/O 병목 억제
         logger.info("\n--- 🔍 [DEBUG] MIDI Pitch Comparison (First 10 notes) ---")
         
         ref_midi = np.round(librosa.hz_to_midi(ref_pitches[:10])) if len(ref_pitches) > 0 else []

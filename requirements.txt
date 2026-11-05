@@ -1,7 +1,7 @@
 # Audio Processing & AI Models
 demucs
 librosa
-museval
+mir_eval>=0.7
 pretty_midi
 mido
 soundfile
@@ -9,22 +9,25 @@ pydub
 pedalboard
 
 # Math & Data
-numpy
+numpy<2.0.0
 pandas
 scipy
 torch
 torchaudio
 torchcrepe
 
-# Visualization
+# Visualization & Utilities
 matplotlib
+seaborn
+tqdm
+PyYAML
+python-dotenv
 
 # API Server & Backend
 fastapi
 uvicorn[standard]
 python-multipart
 pydantic>=2.0.0
-pydantic-settings>=2.0.0
 
 # Frontend & Networking
 streamlit
