@@ -117,6 +117,7 @@
 | **신규 컨테이너 기동 시 DB 테이블 누락 (`UndefinedTable`)** | `docker-compose up`으로 빈 DB 컨테이너와 API 서버 최초 구동 시, 마이그레이션이 자동 실행되지 않아 `transcription_tasks` 테이블 부재 에러 발생. | `docker-compose.yml`의 `api` 구동 명령어에 `alembic upgrade head && uvicorn ...` 체이닝을 적용하여 서버 기동 전 스키마 최신화를 보장함. |
 | **프론트엔드 샌드박스 URL 불일치 (Static Serving 404)** | 백엔드 출력 경로는 `outputs/{task_id}/` 샌드박스로 평탄화되었으나, Streamlit(`app.py`)이 레거시 `htdemucs/` 하위 경로를 호출하여 오디오 및 MIDI 로드 시 404 발생. | 프론트엔드 내 경로 하드코딩을 제거하고 백엔드 `TranscriptionMetadata` DTO의 URL 필드를 단일 진실 공급원(SSOT)으로 참조하도록 통일함. |
 | **Celery 기본 `prefork` 풀과 PyTorch CUDA 데드락** | Celery의 기본 멀티프로세싱(`prefork`)은 OS `fork()`를 사용하여 PyTorch CUDA 컨텍스트 재초기화 에러(`RuntimeError`) 및 VRAM OOM을 유발함. | 워커 실행 옵션을 **`--pool=solo`** 및 `worker_prefetch_multiplier=1`로 강제하여 프로세스 포크 없이 단일 GPU 추론을 안전하게 직렬화함. |
+| **Python 3.14 C-확장 빌드 크래시 및 의존성 불일치** | WSL2 기본 Python 3.14 환경에서 `numba`/`llvmlite` 등 오디오 패키지의 사전 컴파일 Wheel이 부재하고, 폐기된 `museval`이 `requirements.txt`에 잔존하여 빌드 에러 유발. | `uv` 패키지 매니저를 도입해 `Dockerfile` 표준인 **Python 3.10 격리 환경**을 구축하고, `museval` 제거 및 `mir_eval`, `numpy<2.0.0` 상한선 고정으로 의존성을 정규화함. |
 
 ---
 
