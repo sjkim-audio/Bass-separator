@@ -163,6 +163,11 @@ E |---------------------------------------------3--|---------3-----4-----3------
 | **Strict Monophonic Enforcer** | 양자화 격자 병합 시 다른 피치가 동일 격자에 묶일 경우 이를 방치하여 MIDI 출력 단계에서 화음(Polyphony)이 재생되는 아키텍처 붕괴 확인. | 동일 격자 내 피치 충돌 시 원래의 물리적 지속 시간(Duration)이 더 긴 음을 덮어씌우는 최장음 우선(Longest-Note Priority) 로직을 삽입하여 단선율 무결성을 강제함. |
 | **Phase 8.5 (Rendering & Output Hardening)** | | |
 | **Zero-Gap Legato & Tick Resolution Conflict 방어** | 렌더러에서 오버랩 방지를 위해 임의의 시간(-10ms, +20ms)을 가감하던 로직이, 1ms 이하의 초고속 연타 엣지 케이스에서 2차 오버랩(폴리포니)을 유발하고 MIDI PPQ 해상도 충돌(DAW 팝핑 노이즈)을 발생시킴. | 앞 노트의 종료점을 다음 노트의 시작점과 완벽히 일치시키는 Zero-gap Legato 스냅 방식을 도입하여 틱 해상도 충돌 및 물리적 오버랩을 0%로 차단하고, 지속 시간이 역전된 기형적 노트는 렌더링에서 기계적으로 배제(`continue`)함. |
+| **Phase 8.6 (Post-Freeze Code Audit & Logic Hardening)** | | |
+| **Viterbi 최적 운지 결과 증발 (Immutable Update Drop)** | `NoteEvent`가 불변 객체(`frozen=True`)로 설계되었으나, `viterbi_decode` 역추적 후 `event.update()`의 반환값을 리스트에 재할당하지 않아 연산된 최적 운지가 소실되고 파서의 초기 탐욕(Greedy) 운지가 그대로 출력됨. | `valid_events[t] = event.update(string_idx=best_string, fret=best_fret)`로 명시적 재할당을 수행하여 Viterbi 전역 최적해가 하위 렌더러 및 응답 DTO에 정상 반영되도록 교정. |
+| **단일 프레임 노이즈에 의한 5현 오판 (Premature 5-String Detection)** | 디바운싱 및 플럭 노이즈 제거 이전에 원시 프레임 배열(`midi_array`)의 최솟값만으로 5현 여부를 선행 판별하여, 단 1프레임(10ms)의 저역대 스파이크 노이즈(MIDI 28 미만)에도 5현 모드가 강제 활성화됨. | `is_5_string` 판별 시점을 모든 프레임 디바운싱과 기호 영역 가비지 피치 제거(`_post_process_garbage_pitch`)가 완료된 직후로 이동하여 유효 노트 기준으로만 5현 개방 여부를 결정하도록 수정. |
+| **주파수-MIDI 초월함수 왕복 연산 오버헤드 (Redundant Hz-MIDI Conversion)** | 이미 정수형 `midi_note`를 보유한 상태에서 후보군 탐색을 위해 `midi_to_hz` 호출 후 내부에서 다시 `hz_to_midi`로 역변환하는 불필요한 연산이 매 노트마다 반복 수행됨. | `PitchParser` 내부에 정수형 MIDI 노트를 직접 입력받는 `_get_candidates_by_midi` 헬퍼 메서드를 분리하여 불필요한 부동소수점 초월함수 왕복 연산을 제거. |
+| **BPM 추출 실패 시 MIDI 타임베이스 붕괴 (Zero-BPM Tick Corruption)** | 무음이나 비트 추적 실패로 `bpm=0.0`이 반환될 경우, `MidiRenderer`의 `ticks_per_second`가 0이 되어 모든 노트의 `delta_ticks`가 0초에 동시 중첩되는 현상 발생. | `MidiRenderer.render_midi` 진입부에 Fallback 방어 로직(`safe_bpm = bpm if bpm > 0 else 120.0`)을 추가하여 템포 추출 실패 시에도 물리적 시간축(Timebase) 무결성을 보장. |
 
 ---
 

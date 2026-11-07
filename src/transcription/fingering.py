@@ -69,7 +69,8 @@ class ViterbiSmartFingering:
         return physical_move_cost + cost_open + cost_height + cost_stay
 
     def viterbi_decode(self, events: List[NoteEvent], get_candidates_fn) -> List[NoteEvent]:
-        if not events: return []
+        if not events:
+            return []
         
         valid_events = []
         state_sequence = []
@@ -84,7 +85,8 @@ class ViterbiSmartFingering:
                 state_sequence.append(candidates)
                 valid_events.append(event)
                 
-        if not valid_events: return []
+        if not valid_events:
+            return []
         n_steps = len(state_sequence)
         
         dp = [np.zeros(len(states)) for states in state_sequence]
@@ -111,11 +113,12 @@ class ViterbiSmartFingering:
         for t, event in enumerate(valid_events):
             best_string, best_fret = state_sequence[t][best_path[t]]
             
+            # [Fix] 불변 객체(NoteEvent)의 update() 반환값을 리스트에 재할당하여 Viterbi 결과 보존
             if hasattr(event, 'update'):
                 try:
-                    event.update(string_idx=best_string, fret=best_fret)
+                    valid_events[t] = event.update(string_idx=best_string, fret=best_fret)
                 except TypeError:
-                    event.update(string=best_string, fret=best_fret)
+                    valid_events[t] = event.update(string=best_string, fret=best_fret)
             else:
                 event.string = best_string
                 event.fret = best_fret

@@ -46,7 +46,8 @@ class RhythmicQuantizer:
     def _snap_time(self, time_sec: float, subdiv: int) -> float:
         if len(self.beat_times) < 2:
             interval = (60.0 / self.bpm) / subdiv if self.bpm > 0 else 0
-            if interval == 0: return time_sec
+            if interval == 0:
+                return time_sec
             nearest = round(time_sec / interval) * interval
             return nearest if abs(time_sec - nearest) <= self.snap_threshold else time_sec
 
@@ -111,7 +112,8 @@ class RhythmicQuantizer:
                 # ADR-009 원칙 반영: 절대 시간이 아닌 동일 격자(Grid) 내 배정 여부로 병합 조건 강화
                 if curr.midi_note == nxt.midi_note and curr.grid_index == nxt.grid_index:
                     new_dur = (nxt.quantized_time + nxt.quantized_duration) - curr.quantized_time
-                    curr = curr.update(quantized_duration=new_dur)
+                    raw_new_dur = max(curr.duration, (nxt.time + nxt.duration) - curr.time)
+                    curr = curr.update(duration=raw_new_dur, quantized_duration=new_dur)
                 else:
                     merged_events.append(curr)
                     curr = nxt

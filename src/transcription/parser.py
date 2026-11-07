@@ -12,10 +12,7 @@ class PitchParser:
         ]
         self.is_5_string = False
 
-    def get_fret_candidates(self, hz: float) -> List[Tuple[int, int]]:
-        if hz <= 0 or np.isnan(hz):
-            return []
-        midi_note = int(round(librosa.hz_to_midi(hz)))
+    def _get_candidates_by_midi(self, midi_note: int) -> List[Tuple[int, int]]:
         candidates = []
         for s_idx, start_midi in self.tuning_map:
             if not self.is_5_string and s_idx == 0:
@@ -25,18 +22,21 @@ class PitchParser:
                 candidates.append((s_idx, fret))
         return candidates
 
+    def get_fret_candidates(self, hz: float) -> List[Tuple[int, int]]:
+        if hz <= 0 or np.isnan(hz):
+            return []
+        midi_note = int(round(librosa.hz_to_midi(hz)))
+        return self._get_candidates_by_midi(midi_note)
+
     def choose_fret_greedy(self, candidates: List[Tuple[int, int]]) -> Optional[Tuple[int, int]]:
-        if not candidates: return None
+        if not candidates:
+            return None
         return min(candidates, key=lambda x: x[1])
 
     def parse_f0_to_events(self, f0_array: np.ndarray, confidence_array: np.ndarray, onset_mask: np.ndarray) -> List[NoteEvent]:
         valid_mask = (f0_array > 0) & (~np.isnan(f0_array))
         midi_array = np.full(len(f0_array), np.nan)
         midi_array[valid_mask] = np.round(librosa.hz_to_midi(f0_array[valid_mask]))
-
-        robust_mask = valid_mask & (confidence_array > 0.5)
-        min_midi = np.nanmin(midi_array[robust_mask]) if np.any(robust_mask) else 28
-        self.is_5_string = min_midi < 28
 
         events = []
         frame_time = self.hop_length / self.sr
@@ -60,7 +60,6 @@ class PitchParser:
             
             if not np.isnan(midi_val):
                 midi_note = int(midi_val)
-                conf_val = confidence_array[i]
                 
                 if current_note is None:
                     current_note = midi_note
@@ -77,7 +76,7 @@ class PitchParser:
                         conf_avg = float(np.mean(confidence_array[note_start_frame:end_idx]))
                         duration_sec = float(duration_frames * frame_time)
                         comp_start_time = max(0, (note_start_frame * frame_time) - LATENCY_COMP_SEC)
-                        events.append(self._create_event(current_note, comp_start_time, duration_sec, conf_avg))
+                        events.append(NoteEvent(time=comp_start_time, duration=duration_sec, midi_note=current_note, confidence=conf_avg))
                         
                     current_note = midi_note
                     note_start_frame = i
@@ -94,7 +93,7 @@ class PitchParser:
                             conf_avg = float(np.mean(confidence_array[note_start_frame:end_idx]))
                             duration_sec = float(duration_frames * frame_time)
                             comp_start_time = max(0, (note_start_frame * frame_time) - LATENCY_COMP_SEC)
-                            events.append(self._create_event(current_note, comp_start_time, duration_sec, conf_avg))
+                            events.append(NoteEvent(time=comp_start_time, duration=duration_sec, midi_note=current_note, confidence=conf_avg))
                             
                         current_note = midi_note
                         note_start_frame = i
@@ -116,7 +115,7 @@ class PitchParser:
                                 conf_avg = float(np.mean(confidence_array[note_start_frame:end_idx]))
                                 duration_sec = float(duration_frames * frame_time)
                                 comp_start_time = max(0, (note_start_frame * frame_time) - LATENCY_COMP_SEC)
-                                events.append(self._create_event(current_note, comp_start_time, duration_sec, conf_avg))
+                                events.append(NoteEvent(time=comp_start_time, duration=duration_sec, midi_note=current_note, confidence=conf_avg))
                                 
                             current_note = wobble_note
                             note_start_frame = i - int(wobble_counter) + 1
@@ -138,7 +137,7 @@ class PitchParser:
                         conf = float(np.mean(confidence_array[note_start_frame:end_idx]))
                         duration_sec = float(duration_frames * frame_time)
                         comp_start_time = max(0, (note_start_frame * frame_time) - LATENCY_COMP_SEC)
-                        events.append(self._create_event(current_note, comp_start_time, duration_sec, conf))
+                        events.append(NoteEvent(time=comp_start_time, duration=duration_sec, midi_note=current_note, confidence=conf))
                     current_note = None
                     
         if current_note is not None:
@@ -148,20 +147,34 @@ class PitchParser:
                 conf = float(np.mean(confidence_array[note_start_frame:end_idx]))
                 duration_sec = float(duration_frames * frame_time)
                 comp_start_time = max(0, (note_start_frame * frame_time) - LATENCY_COMP_SEC)
-                events.append(self._create_event(current_note, comp_start_time, duration_sec, conf))
+                events.append(NoteEvent(time=comp_start_time, duration=duration_sec, midi_note=current_note, confidence=conf))
 
         events = self._post_process_garbage_pitch(events)
+
+        # [Fix] 디바운싱 및 가비지 피치 제거를 통과한 유효 노트 기준으로 5현 베이스 여부 최종 판별
+        self.is_5_string = any(23 <= e.midi_note < 28 and e.confidence > 0.5 for e in events)
+
+        # 확정된 튜닝 기준(4현/5현)으로 초기 Fallback 운지(Greedy) 일괄 할당
+        events = [self._assign_greedy_fret(e) for e in events]
         return events
 
+    def _assign_greedy_fret(self, event: NoteEvent) -> NoteEvent:
+        candidates = self._get_candidates_by_midi(event.midi_note)
+        pos = self.choose_fret_greedy(candidates)
+        if pos:
+            return event.update(string_idx=pos[0], fret=pos[1])
+        return event
+
     def _create_event(self, midi_note: int, time_sec: float, duration_sec: float, confidence: float) -> NoteEvent:
-        candidates = self.get_fret_candidates(librosa.midi_to_hz(midi_note))
+        candidates = self._get_candidates_by_midi(midi_note)
         pos = self.choose_fret_greedy(candidates)
         if pos:
             return NoteEvent(time=time_sec, duration=duration_sec, midi_note=midi_note, string_idx=pos[0], fret=pos[1], confidence=confidence)
         return NoteEvent(time=time_sec, duration=duration_sec, midi_note=midi_note, confidence=confidence)
 
     def _post_process_garbage_pitch(self, events: List[NoteEvent]) -> List[NoteEvent]:
-        if not events: return []
+        if not events:
+            return []
         working_events = events.copy()
         cleaned_events = []
         i = 0

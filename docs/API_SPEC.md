@@ -3,7 +3,7 @@
 본 API는 대용량 오디오 딥러닝 추론에 최적화된 **비동기 폴링(Asynchronous Polling)** 아키텍처를 사용합니다. 클라이언트는 파일을 업로드한 후 반환받은 `task_id`를 이용해 처리 완료 여부를 주기적으로 확인해야 합니다.
 
 * **Base URL:** `/api/v1`
-* **Workflow:** `POST /transcribe` (파일 업로드) -> `202 Accepted` 반환 -> `GET /status/{task_id}` (2~3초 주기 폴링) -> 완료 시 데이터 수신
+* **Workflow:** `POST /transcribe` (파일 업로드) -> `202 Accepted` 반환 -> `GET /tasks/{task_id}` (2~3초 주기 폴링) -> 완료 시 데이터 수신
 
 ---
 
@@ -46,7 +46,7 @@
 
 발급받은 `task_id`를 사용하여 작업 진행 상태를 확인하고, 완료 시 전체 악보 데이터를 수신합니다. (권장 폴링 주기: 3초)
 
-* **URL:** `/status/{task_id}`
+* **URL:** `/tasks/{task_id}`
 * **Method:** `GET`
 
 ### Request Parameters
