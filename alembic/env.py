@@ -2,26 +2,33 @@ import asyncio
 import os
 from logging.config import fileConfig
 
+from dotenv import load_dotenv
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
 
-# 🔴 ORM 모델 임포트 (경로 인식)
+# 로컬 .env 파일 자동 로드
+load_dotenv(override=False)
+
+# ORM 모델 임포트 (경로 인식)
 from app.database.models import Base
 import app.database.models  # noqa
 
 config = context.config
 
-# 🔴 동적 데이터베이스 URL 바인딩
-database_url = os.getenv("DATABASE_URL", "postgresql+asyncpg://user:password@localhost:5432/bass_db")
+# 동적 데이터베이스 URL 바인딩 (.env 또는 시스템 환경변수 참조)
+database_url = os.getenv(
+    "DATABASE_URL",
+    "postgresql+asyncpg://sjkim:8721@localhost:5432/bass_db"
+)
 config.set_main_option("sqlalchemy.url", database_url)
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# 🔴 ORM 모델의 메타데이터 연결
+# ORM 모델의 메타데이터 연결
 target_metadata = Base.metadata
 
 def run_migrations_offline() -> None:
