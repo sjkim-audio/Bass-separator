@@ -85,10 +85,13 @@ python -m src.evaluation.run_batch_eval \
 .
 ├── alembic/              # 데이터베이스 마이그레이션 스크립트 (Alembic)
 │   └── versions/         # 스키마 리비전 히스토리
-├── app/                  # FastAPI 기반 REST API 백엔드 서버
-│   ├── database/         # 비동기 DB 엔진, 세션 관리 및 SQLAlchemy ORM 모델
+├── app/                  # FastAPI 비동기 REST API 서버 및 분산 워커 계층
+│   ├── database/         # DB 연결, 세션 관리 및 SQLAlchemy ORM 모델
+│   │   ├── core.py       # API(QueuePool)와 워커(NullPool) 실행 주체별 커넥션 풀 동적 분기 엔진
+│   │   └── models.py     # 비동기 작업 상태(FSM) 및 메타데이터(JSONB) 영속성 ORM 모델
 │   ├── schemas/          # API 응답 및 데이터 컨트랙트 계층 (Pydantic DTO)
-│   └── main.py           # API 라우팅, DB 트랜잭션 격리, Lifespan GC 및 상태 관리
+│   ├── main.py           # API 라우팅, 작업 큐 위임(.delay), Lifespan 기반 고아 작업 복구 및 상태 조회
+│   └── worker.py         # Redis 브로커 기반 Celery 분산 추론 워커 및 비동기 DB 상태 동기화 태스크
 ├── docs/                 # 프로젝트 기술 문서 (표준 Taxonomy 적용)
 │   ├── ADR/              # Architecture Decision Records (설계 의사결정 기록)
 │   ├── devlogs/          # 알고리즘 실험 및 인프라 트러블슈팅 일지
@@ -118,10 +121,11 @@ python -m src.evaluation.run_batch_eval \
 │   ├── env_setup.py          # 구글 코랩 및 로컬 환경의 OS 종속성(FFmpeg 등) 자동 구축 헬퍼 스크립트
 │   ├── main.py               # 백엔드 API 없이 단일 터미널 환경에서 코어 파이프라인을 실행하는 래퍼 스크립트
 │   └── utils.py              # 구글 드라이브 연동, 평가 결과 JSON I/O 등 공통 유틸리티 함수 모음
+├── .env.example          # 로컬 및 컨테이너 환경변수 구성 템플릿 (DB URL, Redis Broker 등)
 ├── alembic.ini           # Alembic 설정 파일
 ├── app.py                # Streamlit 기반 프론트엔드 웹 데모 (MVP 시각화 및 다운로드)
-├── docker-compose.yml    # API 서버 및 PostgreSQL DB 컨테이너 오케스트레이션
-├── Dockerfile            # API 서버 이미지 빌드 명세서
+├── docker-compose.yml    # API 서버, Celery 워커, PostgreSQL, Redis 컨테이너 오케스트레이션
+├── Dockerfile            # API 서버 및 추론 워커 이미지 빌드 명세서
 ├── requirements.txt      # Python 패키지 의존성
 ├── LICENSE               # 오픈소스 라이선스
 └── README.md             # 프로젝트 개요 및 가이드 (현재 파일)
