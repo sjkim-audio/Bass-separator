@@ -67,3 +67,13 @@
 
 *   **동기식 파일 I/O 블로킹 방어:** `/api/v1/transcribe` 라우터(`async def`)에서 파일을 로컬 임시 폴더에 저장할 때, 기존의 `shutil.copyfileobj`를 사용할 경우 동기적인 디스크 쓰기 작업으로 인해 이벤트 루프가 멈추는(Blocking) 미세 병목이 관찰되었다.
 *   **해결:** 파일 크기 제한 검증을 위해 이미 `await file.read()`로 파일의 전체 바이트 배열이 메모리(`content`)에 적재되어 있다는 점에 착안, 파일 포인터(`seek`)를 되돌리지 않고 해당 바이트 배열을 단일 `write()` 연산으로 직접 기록하도록 리팩토링했다. 이를 통해 수십 MB의 파일 업로드 시에도 다른 사용자들의 상태 폴링(`/tasks` API) 지연을 최소화했다.
+
+## 7. 분산 워커(Celery) 확장을 위한 커넥션 풀 동적 이원화
+
+*   **이슈 (Event Loop Attachment Error):** FastAPI 서버는 단일 비동기 이벤트 루프 위에서 `AsyncAdaptedQueuePool`(`pool_size=5`)을 공유하여 커넥션 재사용 효율을 극대화한다. 그러나 동기 프로세스 기반의 Celery 워커에서 태스크 실행 시마다 `asyncio.run()`으로 새로운 이벤트 루프를 생성할 경우, 기존 루프에 바인딩된 커넥션 풀 객체가 재사용되면서 `RuntimeError: Task got Future attached to a different loop` 크래시가 발생하는 구조적 한계가 식별되었다.
+*   **해결 (Pool Strategy Dualization):** `app/database/core.py`에서 워커 프로세스 여부를 판별하여 실행 주체별로 커넥션 풀 전략을 동적으로 분기하도록 리팩토링했다.
+    *   **API 서버 (`QueuePool` 유지):** 상시 구동되는 단일 이벤트 루프에서 `AsyncAdaptedQueuePool`을 유지하여 빈번한 상태 폴링 요청에 대한 연결 오버헤드 최소화.
+    *   **추론 워커 (`NullPool` 강제):** `NullPool`을 적용하여 트랜잭션 종료 시마다 물리적 커넥션을 즉시 반환·폐기함으로써 이벤트 루프 간 커넥션 오염을 원천 차단. (수십 초가 소요되는 GPU 추론 대비 수 ms 수준의 TCP 연결 비용은 무시 가능하므로 안정성을 우선한 트레이드오프 수용)
+*   **이중 안전장치 (Defense in Depth) 적용:**
+    *   `IS_CELERY_WORKER=true` 환경변수뿐만 아니라 `sys.argv[0]`의 실행 엔트리포인트(`celery` CLI)를 함께 감지하도록 구성하여, 환경변수 누락으로 인한 휴먼 에러를 코드 레벨에서 원천 차단했다.
+    *   `load_dotenv(override=False)`로 배포 환경의 시스템 환경변수 우선순위를 보존하고, `pool_pre_ping=True` 옵션을 활성화하여 DB 재시작 시 유휴 커넥션 끊김으로 인한 `InterfaceError`를 자동 복구하도록 보강했다.

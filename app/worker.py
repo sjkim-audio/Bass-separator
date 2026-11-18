@@ -3,10 +3,14 @@ import time
 import shutil
 import asyncio
 from pathlib import Path
+from dotenv import load_dotenv
 from celery import Celery
 
 # 윈도우 및 리눅스 환경의 OpenMP 라이브러리 중복 로드 충돌 방지
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+
+# 로컬 .env 환경변수 자동 로드
+load_dotenv(override=False)
 
 # DB 의존성 및 ORM 모델 임포트
 from app.database.core import engine, AsyncSessionLocal
@@ -186,7 +190,6 @@ async def _run_pipeline_async(task_id: str, temp_file_path: str) -> None:
 
     finally:
         cleanup_files(temp_file_path)
-        # asyncio.run() 루프 종료 전 비동기 DB 엔진 풀을 명시적으로 해제하여 후속 태스크의 루프 바인딩 충돌 차단
         await engine.dispose()
 
 
