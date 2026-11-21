@@ -51,9 +51,9 @@ Phase 9-1을 통해 작업 상태의 RDBMS 영속화는 달성했으나, 연산 
   - `app/main.py`의 `run_pipeline_task` 로직을 `app/worker.py`의 Celery 태스크(`worker.run_pipeline_task`)로 이관.
   - `app/database/core.py`에 워커 프로세스 감지(`IS_CELERY_WORKER` 및 `sys.argv`) 기반 `NullPool` 분기 적용 및 코루틴 종료 시 `await engine.dispose()` 호출로 이벤트 루프 바인딩 충돌 방어.
   - `asyncio.run()` 종료 시 증발하는 코루틴 타이머를 대체하기 위해 `worker.cleanup_sandbox` 지연 태스크(`apply_async(countdown=3600)`) 도입.
-- [ ] **Step 3: FastAPI 라우터 디커플링 및 자가 치유(Self-healing) 보강**
-  - `app/main.py`에서 `BackgroundTasks`, `gpu_semaphore`, 코어 파이프라인 직접 임포트를 제거하고 Celery 태스크 발행(`.delay()`)으로 교체.
-  - 워커 강제 종료로 인해 `PROCESSING` 상태에서 멈춘 고아 레코드를 서버 기동 시 `FAILED`로 복구하는 Lifespan 자가 치유 로직 추가.
+- [x] **Step 3: FastAPI 라우터 디커플링 및 자가 치유(Self-healing) 보강**
+  - `app/main.py`에서 `BackgroundTasks`, `gpu_semaphore`, 코어 파이프라인 직접 임포트를 완전히 제거하고 Celery 태스크 발행(`.delay()`) 전용 Thin API Gateway로 개편.
+  - 서버 기동 시 `PROCESSING` 상태로 방치된 고아 레코드를 검색하여 `FAILED`로 정산하는 Lifespan 자가 치유(Self-healing) 로직 구현 완료.
 
 ## 5. 핵심 트러블슈팅 및 인프라 정합성 교정
 
