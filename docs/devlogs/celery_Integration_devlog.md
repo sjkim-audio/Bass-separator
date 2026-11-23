@@ -69,6 +69,9 @@ Phase 9-1을 통해 작업 상태의 RDBMS 영속화는 달성했으나, 연산 
 *   **Python 3.14 호환성 단절 및 레거시 의존성(`museval`) 정리:**
     *   **이슈:** WSL2 Ubuntu의 최신 Python 3.14 환경에서는 `numba`/`llvmlite`(`librosa` 의존성) 및 C-확장 오디오 패키지의 사전 컴파일 Wheel이 존재하지 않아 `pip install` 시 소스 빌드 에러가 발생했다. 또한 코드에서 이미 `mir_eval`로 대체된 `museval`이 `requirements.txt`와 `evaluator.py` 임포트문에 남아 있었다.
     *   **해결:** `uv` 패키지 매니저를 사용해 프로젝트 표준인 **Python 3.10 격리 가상환경**을 재구축하고, 미사용 `museval` 제거 및 `numpy<2.0.0` 상한선 고정으로 MIR 라이브러리와의 호환성을 확립했다.
+*   **단일 워커(`--pool=solo`) 행(Hang) 및 MR 병합 메모리 피크 완화:**
+    *   **이슈:** `src/core/demucs_runner.py`의 `subprocess.run`에 타임아웃이 없어 Demucs 프로세스가 행(Hang)에 빠질 경우 `--pool=solo` 워커 전체가 영구 마비될 위험이 있었다. 또한 MR 합산 시 3개 스템을 기본 `float64`로 동시 적재하고 병합 후 중간 스템 파일을 남기는 비효율이 존재했다.
+    *   **해결:** 서브프로세스에 `timeout=600` 예외 처리를 추가하고, `dtype="float32"` 순차 로드 + In-place 합산(`+=`) 및 저장 직후 중간 스템 3종(`drums`, `vocals`, `other`) 즉시 삭제로 8GB RAM 환경 안정성을 확보했다.
 
 ## 6. 아키텍처 한계점 및 트레이드오프 (Trade-offs & Limitations)
 
