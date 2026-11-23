@@ -47,3 +47,10 @@
 * **Negative:**
     * 디스크 I/O 관점에서 4개의 스템 파일을 임시로 저장해야 하므로 미세한 용량 오버헤드가 발생한다.
     * CPU RAM 단에서 3개 트랙을 합산(Numpy Addition)하는 후처리 로직이 추가된다. (단, 해당 연산은 < 0.1초 소요로 전체 Latency에 미치는 영향은 무시할 수 있는 수준이다.)
+
+## 6. Addendum (2026-11-22)
+* **Memory & Disk Overhead Mitigation:** 기존 4-Stem 후처리 시 3개 스템을 `float64`로 동시 적재하던 방식은 8GB RAM 환경에서 불필요한 메모리 피크를 유발했다. 이를 `sf.read(..., dtype="float32")` 순차 로드 및 In-place 합산(`+=`)으로 교체하고, `bassless_backing.wav` 저장 직후 중간 스템 3종(`drums`, `vocals`, `other`)을 즉시 삭제하도록 개선하여 RAM 및 샌드박스 디스크 점유를 최소화했다.
+* **Subprocess Hang Defense:** 단일 워커(`--pool=solo`) 영구 마비를 막기 위해 Demucs 서브프로세스 실행에 `timeout=600` 제한을 추가했다.
+
+
+
