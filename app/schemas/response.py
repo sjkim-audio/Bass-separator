@@ -13,7 +13,8 @@ class TranscriptionMetadata(BaseModel):
 
 class BassNoteEvent(BaseModel):
     start_time: float
-    duration: float = 0.0 
+    # 🔴 [핵심 수정] 기본값(0.0)을 제거하고, 양수(gt=0.0) 검증 강제
+    duration: float = Field(..., gt=0.0, description="노트의 지속 시간은 0보다 커야 합니다.") 
     midi_note: int
     string_idx: Optional[int] = None
     fret: Optional[int] = None

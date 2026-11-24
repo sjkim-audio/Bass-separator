@@ -38,7 +38,6 @@ def install_python_requirements(req_path="requirements.txt"):
     
     if os.path.exists(req_path):
         print(f"📄 {req_path} 파일을 발견했습니다. 의존성 패키지를 설치합니다...")
-        # -q: Quiet mode (less logs), --upgrade: Ensure latest versions
         run_command([sys.executable, "-m", "pip", "install", "-r", req_path], "패키지 일괄 설치")
     else:
         print(f"⚠️ 경고: 현재 경로에 {req_path} 파일이 없습니다.")
@@ -62,7 +61,7 @@ def init_colab_env():
 
     # 3. Health Check (Verify critical imports)
     print("\n🏥 설치 무결성 점검 (Health Check)...")
-    critical_libs = ["demucs", "torchaudio", "librosa", "museval"]
+    critical_libs = ["demucs", "torchaudio", "librosa", "mir_eval"]
     missing = []
     
     for lib in critical_libs:
