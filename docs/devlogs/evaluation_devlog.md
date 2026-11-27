@@ -58,9 +58,9 @@
 *   **역할:** 노트북(Notebook) 환경의 프로토타이핑을 넘어, 터미널 환경에서 대규모 배치 평가를 가동하는 프로덕션 레벨 스크립트. OOM 방어 및 위상 지연(Latency Shift) 자동 보정 로직이 탑재되어 있음.
 *   **실행 규격:**
     ```bash
-    python -m src.evaluation.run_batch_eval \
+        python -m src.evaluation.run_batch_eval \
         --test_dir ./slakh_processed/test \
-        --isolated False \
+        --task e2e \
         --onset_tolerance 0.1 \
         --exp_id Phase8_Baseline
     ```
