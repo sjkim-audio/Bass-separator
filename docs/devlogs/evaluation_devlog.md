@@ -164,6 +164,12 @@
 *   **결과:** 151곡 평가 과정에서 잦은 컨텍스트 스위칭이 발생하여 비동기 이벤트 루프의 효율이 떨어지고, 전체 벤치마크 소요 시간이 불필요하게 팽창하는 병목 현상 발견.
 *   **해결:** 모듈 내 모든 동기식 `print()` 호출을 파이썬 표준 `logging` 모듈(`logger.info`, `logger.warning`, `logger.error` 등)로 전면 교체함. 이를 통해 비동기 환경에서의 스레드 안전성(Thread-safety)과 시스템 관측성(Observability)을 확보하고, 대규모 E2E 평가 시의 성능 저하를 방어함.
 
+### 3.15. 분리 평가 CLI 시그니처 불일치(`TypeError`) 및 `NaN`/`KeyError` 핫픽스
+*   **이슈:** `3.13`에서 `evaluate_separation(mix_path, ref_path, est_path)`로 시그니처를 확장한 이후, `run_batch_eval.py`의 `--task sep` 모드가 인자를 2개만 전달해 즉시 `TypeError`로 크래시되었다. 또한 `run_separation_evaluation`은 `mix_path` 자리에 `ref_path`를 중복 전달해 `mix - ref = 0`(무음 레퍼런스)을 생성하며 `bss_eval_sources`가 `NaN`을 반환했고, `run_eval.py --mode sep --save`는 `mir_eval` 결과에 없는 `hop_sec` 키를 참조해 `KeyError`가 발생했다.
+*   **해결:**
+    *   `run_batch_eval.py`의 `--task sep` 분기에서 `mix_audio`를 첫 번째 인자로 전달하고, 모드별 필수 파일 검증 및 `np.nanmean` 집계를 적용했다.
+    *   `run_separation_evaluation`과 `run_eval.py`에 선택적 `--mix` 인자를 추가했으며, `mix_path` 미제공 또는 `mix == ref` 상황에서는 크래시 대신 경고 로그와 함께 단일 채널(1-source) 평가로 안전 폴백하도록 교정했다.
+    *   `run_eval.py`의 `--mode sep --save` 분기에 `"hop_sec" in metrics` 가드를 추가해 `visualize_metrics` 크래시를 차단했다.
 
 ---
 </details>
