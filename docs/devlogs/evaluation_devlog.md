@@ -86,6 +86,7 @@
 | **Separation API Deprecation** | `museval` 패키지 업데이트로 인한 `eval_bss_v4` API 소실로 음원 분리(SDR) 채점 불가. | `mir_eval.separation`으로 평가 엔진을 마이그레이션하고, 2D 텐서 주입 및 `NaN` 예외 반환 방어 로직 구축. |
 | **Separation SIR Infinity** | 평가기에 타겟 음원(Bass)만 단일 입력되어 수학적 간섭(Interference) 수치가 0으로 계산됨. | Mix 음원에서 Bass를 감산해 간섭 신호(Bassless)를 합성한 후 2채널 매트릭스로 주입하여 지표 산출 로직 교정. |
 | **Evaluator I/O Blocking** | `debug_octave_shift` 내부의 동기식 `print` 호출이 대규모 비동기 배치 평가 루프에서 컨텍스트 스위칭과 I/O 병목을 유발함. | 표준 `logging` 모듈로 전면 교체하여 비동기 환경에서의 관측성(Observability)을 확보하고 벤치마크 성능 저하를 방어함. |
+| **Separation CLI Signature Mismatch** | `evaluate_separation`에 `mix_path` 인자 추가 후 `run_batch_eval.py` (`--task sep`)에서 2개 인자만 전달해 `TypeError` 발생, `run_separation_evaluation`에서는 `ref`를 `mix`로 중복 전달해 `ref - ref = 0` (`NaN`) 산출. | `run_batch_eval.py`에 `mix_audio` 전달, `run_eval.py`에 선택 인자 `--mix` 추가 및 미제공 시 1-source 안전 폴백 구현. `--mode sep --save` 시 `hop_sec` 누락 `KeyError` 가드 추가. |
 
 <details>
 <summary><b>각 항목별 상세 원인 및 설계 논리</b></summary>
